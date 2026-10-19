@@ -1,3 +1,7 @@
+import type { Timestamp } from 'firebase/firestore';
+
+import type { AccountRole, AccountStatus, AccountType } from '@/constants/account';
+
 // Owner authentication contracts (backend/app/schemas/auth.py).
 // UUIDs are strings in JSON. Tenant authentication has its own, separate contracts.
 
@@ -29,4 +33,33 @@ export type OwnerResponse = {
 export type TokenResponse = {
   access_token: string;
   token_type: string;
+};
+
+/**
+ * The signed-in user as held in Redux, derived from the Firebase Auth user. It carries identity
+ * only: no tokens, no password and no role. Application roles are not granted by the client.
+ */
+export type OwnerUser = {
+  /** Firebase Auth UID. */
+  uid: string;
+  email: string | null;
+  displayName: string | null;
+};
+
+/**
+ * A user's Firestore profile. It holds no credentials: passwords stay in Firebase Auth.
+ * `role` and `status` are authorization data and are written only by trusted provisioning.
+ * `accountType` records the type the user chose at sign-up and is not trusted on its own.
+ */
+export type UserProfile = {
+  /** Firebase Auth UID, also the document ID. */
+  uid: string;
+  accountType: AccountType;
+  role: AccountRole;
+  status: AccountStatus;
+  displayName: string;
+  email: string;
+  phone?: string;
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
 };

@@ -1,141 +1,101 @@
-import { createAsyncThunk, createSlice } from '@reduxjs/toolkit';
+import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit';
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+} from 'firebase/auth';
 
 import { normalizeApiError, type NormalizedApiError } from '@/api/errors';
-import { getCurrentOwner, loginOwner, registerOwner } from '@/features/auth/authApi';
+import { getFirebaseAuth } from '@/config/firebase';
 import type {
   OwnerLoginRequest,
   OwnerRegisterRequest,
-  OwnerResponse,
+  OwnerUser,
 } from '@/features/auth/authTypes';
 import {
-  getOwnerToken,
-  removeOwnerToken,
-  saveOwnerToken,
-} from '@/features/auth/ownerTokenStorage';
+  normalizeFirebaseAuthError,
+  normalizeGoogleSignInError,
+} from '@/features/auth/firebaseAuthError';
+import { signInWithGoogle, signOutOfGoogle } from '@/features/auth/googleSignIn';
+import { removeOwnerToken } from '@/features/auth/ownerTokenStorage';
+import { toOwnerUser } from '@/features/auth/ownerUser';
 
-type AuthOperation = 'register' | 'login' | 'fetchOwner' | 'restoreSession';
+type AuthOperation = 'register' | 'login' | 'google';
 
 export type AuthState = {
-  owner: OwnerResponse | null;
+  owner: OwnerUser | null;
   isAuthenticated: boolean;
+  /** False until Firebase has reported the persisted session once (or failed to). */
+  isInitialized: boolean;
   loading: Record<AuthOperation, boolean>;
-  errors: Record<AuthOperation, NormalizedApiError | null>;
+  errors: Record<AuthOperation | 'restoreSession', NormalizedApiError | null>;
 };
 
 const initialState: AuthState = {
   owner: null,
   isAuthenticated: false,
-  loading: { register: false, login: false, fetchOwner: false, restoreSession: false },
-  errors: { register: null, login: null, fetchOwner: null, restoreSession: null },
+  isInitialized: false,
+  loading: { register: false, login: false, google: false },
+  errors: { register: null, login: null, google: null, restoreSession: null },
 };
 
-// The JWT must never appear in thunk arguments, payloads or state: it only moves between
-// the API layer and secure storage inside the thunk bodies below.
+// Passwords and Firebase tokens never enter state or payloads. The session itself is owned
+// by Firebase Auth; this slice mirrors the signed-in user through `authStateChanged`, which
+// is dispatched by the single auth observer (`ownerAuthObserver.ts`), not by the thunks.
 
-/** Login succeeded and the token was saved securely. The token itself is not exposed. */
-export type OwnerLoginResult = { tokenSaved: true };
-
-/** `owner` is null when there is no saved session. */
-export type OwnerSessionResult = { owner: OwnerResponse | null };
-
-/** Result of `logoutOwnerThunk`; `false` means the saved token could not be removed. */
-export type OwnerLogoutResult = { tokenRemoved: boolean };
+/** Result of `logoutOwnerThunk`. A failed sign-out rejects instead, leaving the session intact. */
+export type OwnerLogoutResult = { signedOut: true };
 
 const createAuthThunk = createAsyncThunk.withTypes<{ rejectValue: NormalizedApiError }>();
 
-const storageError = (message: string): NormalizedApiError => ({ message, category: 'unknown' });
-
-const isUnauthorized = (error: NormalizedApiError) =>
-  error.category === 'http' && error.status === 401;
-
-type StoredOwnerResult =
-  | { kind: 'owner'; owner: OwnerResponse }
-  | { kind: 'no-token' }
-  | { kind: 'error'; error: NormalizedApiError };
-
-// Loads the current owner using the saved token. An invalid/expired token (HTTP 401) is
-// removed from storage; any other failure (network, timeout, 5xx) keeps it for a retry.
-async function loadOwnerWithStoredToken(): Promise<StoredOwnerResult> {
-  let token: string | null;
-  try {
-    token = await getOwnerToken();
-  } catch {
-    return { kind: 'error', error: storageError('Unable to read the saved session.') };
-  }
-
-  if (token === null) return { kind: 'no-token' };
-
-  try {
-    return { kind: 'owner', owner: await getCurrentOwner(token) };
-  } catch (error) {
-    const normalized = normalizeApiError(error);
-    if (isUnauthorized(normalized)) {
-      try {
-        await removeOwnerToken();
-      } catch {
-        // The in-memory session is cleared regardless; a leftover token is rejected
-        // with 401 and removed again on the next restore attempt.
-      }
-    }
-    return { kind: 'error', error: normalized };
-  }
-}
-
-export const registerOwnerThunk = createAuthThunk<OwnerResponse, OwnerRegisterRequest>(
+// Creating the account also signs the user in, so the observer authenticates them.
+export const registerOwnerThunk = createAuthThunk<void, OwnerRegisterRequest>(
   'ownerAuth/registerOwner',
-  async (data, { rejectWithValue }) => {
+  async ({ full_name, email, password }, { dispatch, rejectWithValue }) => {
+    let credential;
     try {
-      return await registerOwner(data);
+      credential = await createUserWithEmailAndPassword(getFirebaseAuth(), email, password);
     } catch (error) {
-      return rejectWithValue(normalizeApiError(error));
-    }
-  },
-);
-
-// Saves the token securely and resolves without it. The owner becomes authenticated only
-// after `fetchCurrentOwnerThunk` succeeds.
-export const loginOwnerThunk = createAuthThunk<OwnerLoginResult, OwnerLoginRequest>(
-  'ownerAuth/loginOwner',
-  async (data, { rejectWithValue }) => {
-    let accessToken: string;
-    try {
-      accessToken = (await loginOwner(data)).access_token;
-    } catch (error) {
-      return rejectWithValue(normalizeApiError(error));
+      return rejectWithValue(normalizeFirebaseAuthError(error));
     }
 
+    // The account exists at this point, so a failed name update must not fail registration.
     try {
-      await saveOwnerToken(accessToken);
+      await updateProfile(credential.user, { displayName: full_name.trim() });
+      // The observer already ran with no display name; publish the updated user.
+      dispatch(authStateChanged(toOwnerUser(credential.user)));
     } catch {
-      return rejectWithValue(
-        storageError('Signed in, but the session could not be saved securely on this device.'),
-      );
+      // The name can be set again later; the session is valid without it.
     }
-
-    return { tokenSaved: true };
   },
 );
 
-// Fetches the owner using the saved token (e.g. right after login).
-export const fetchCurrentOwnerThunk = createAuthThunk<OwnerResponse, void>(
-  'ownerAuth/fetchCurrentOwner',
-  async (_, { rejectWithValue }) => {
-    const result = await loadOwnerWithStoredToken();
-    if (result.kind === 'owner') return result.owner;
-    if (result.kind === 'no-token') return rejectWithValue(storageError('No saved session found.'));
-    return rejectWithValue(result.error);
+// The observer authenticates the user once Firebase reports the signed-in state.
+export const loginOwnerThunk = createAuthThunk<void, OwnerLoginRequest>(
+  'ownerAuth/loginOwner',
+  async ({ email, password }, { rejectWithValue }) => {
+    try {
+      await signInWithEmailAndPassword(getFirebaseAuth(), email, password);
+    } catch (error) {
+      return rejectWithValue(normalizeFirebaseAuthError(error));
+    }
   },
 );
 
-// Restores a session at app start. With no saved token it resolves with `owner: null`
-// without making any API request.
-export const restoreOwnerSessionThunk = createAuthThunk<OwnerSessionResult, void>(
-  'ownerAuth/restoreSession',
+/** Result of `loginWithGoogleThunk`. Backing out of the Google dialog is not an error. */
+export type GoogleLoginResult = { cancelled: boolean };
+
+// As with email login, the observer authenticates the user once Firebase reports the session.
+export const loginWithGoogleThunk = createAuthThunk<GoogleLoginResult, void>(
+  'ownerAuth/loginWithGoogle',
   async (_, { rejectWithValue }) => {
-    const result = await loadOwnerWithStoredToken();
-    if (result.kind === 'owner') return { owner: result.owner };
-    if (result.kind === 'no-token') return { owner: null };
-    return rejectWithValue(result.error);
+    try {
+      const result = await signInWithGoogle();
+      return { cancelled: result.status === 'cancelled' };
+    } catch (error) {
+      return rejectWithValue(normalizeGoogleSignInError(error));
+    }
   },
 );
 
@@ -143,20 +103,23 @@ const ownerAuthSlice = createSlice({
   name: 'ownerAuth',
   initialState,
   reducers: {
-    logoutOwner: () => initialState,
+    authStateChanged: (state, action: PayloadAction<OwnerUser | null>) => {
+      state.owner = action.payload;
+      state.isAuthenticated = action.payload !== null;
+      state.isInitialized = true;
+      state.errors.restoreSession = null;
+    },
+    authStateFailed: (state, action: PayloadAction<NormalizedApiError>) => {
+      state.owner = null;
+      state.isAuthenticated = false;
+      state.isInitialized = true;
+      state.errors.restoreSession = action.payload;
+    },
+    // Stays initialized: the auth state is known (signed out), so the gate must not spin.
+    logoutOwner: () => ({ ...initialState, isInitialized: true }),
   },
   extraReducers: (builder) => {
-    // A 401 means the token is no longer valid, so the in-memory session is dropped too.
-    // Other failures keep the current session so a temporary outage does not log out.
-    const clearSessionIfUnauthorized = (state: AuthState, error: NormalizedApiError) => {
-      if (isUnauthorized(error)) {
-        state.owner = null;
-        state.isAuthenticated = false;
-      }
-    };
-
     builder
-      // Register: never touches owner/isAuthenticated (no token is issued).
       .addCase(registerOwnerThunk.pending, (state) => {
         state.loading.register = true;
         state.errors.register = null;
@@ -168,7 +131,6 @@ const ownerAuthSlice = createSlice({
         state.loading.register = false;
         state.errors.register = action.payload ?? normalizeApiError(action.error);
       })
-      // Login: the response has no owner, so only loading/error change here.
       // A failed login does not clear an existing session.
       .addCase(loginOwnerThunk.pending, (state) => {
         state.loading.login = true;
@@ -181,57 +143,44 @@ const ownerAuthSlice = createSlice({
         state.loading.login = false;
         state.errors.login = action.payload ?? normalizeApiError(action.error);
       })
-      // Fetch current owner: authenticates on success.
-      .addCase(fetchCurrentOwnerThunk.pending, (state) => {
-        state.loading.fetchOwner = true;
-        state.errors.fetchOwner = null;
+      .addCase(loginWithGoogleThunk.pending, (state) => {
+        state.loading.google = true;
+        state.errors.google = null;
       })
-      .addCase(fetchCurrentOwnerThunk.fulfilled, (state, action) => {
-        state.loading.fetchOwner = false;
-        state.owner = action.payload;
-        state.isAuthenticated = true;
+      .addCase(loginWithGoogleThunk.fulfilled, (state) => {
+        state.loading.google = false;
       })
-      .addCase(fetchCurrentOwnerThunk.rejected, (state, action) => {
-        const error = action.payload ?? normalizeApiError(action.error);
-        state.loading.fetchOwner = false;
-        state.errors.fetchOwner = error;
-        clearSessionIfUnauthorized(state, error);
-      })
-      // Restore session: no saved token resolves as unauthenticated.
-      .addCase(restoreOwnerSessionThunk.pending, (state) => {
-        state.loading.restoreSession = true;
-        state.errors.restoreSession = null;
-      })
-      .addCase(restoreOwnerSessionThunk.fulfilled, (state, action) => {
-        state.loading.restoreSession = false;
-        state.owner = action.payload.owner;
-        state.isAuthenticated = action.payload.owner !== null;
-      })
-      .addCase(restoreOwnerSessionThunk.rejected, (state, action) => {
-        const error = action.payload ?? normalizeApiError(action.error);
-        state.loading.restoreSession = false;
-        state.errors.restoreSession = error;
-        clearSessionIfUnauthorized(state, error);
+      .addCase(loginWithGoogleThunk.rejected, (state, action) => {
+        state.loading.google = false;
+        state.errors.google = action.payload ?? normalizeApiError(action.error);
       });
   },
 });
 
 const ownerAuthReducer = ownerAuthSlice.reducer;
 
-export const { logoutOwner } = ownerAuthSlice.actions;
+export const { authStateChanged, authStateFailed, logoutOwner } = ownerAuthSlice.actions;
 export default ownerAuthReducer;
 
-// Clears the in-memory session first, so the owner is logged out even if deleting the
-// saved token fails; the result reports whether the token was actually removed.
+// Signs out of Firebase first and clears Redux only once that succeeded, so the UI and the
+// persisted session cannot disagree: if sign-out fails the owner stays signed in and the
+// rejection carries the error. On success the auth observer also reports the signed-out state.
+// The legacy backend token from the previous login flow is removed too (best effort).
 export const logoutOwnerThunk = createAuthThunk<OwnerLogoutResult, void>(
   'ownerAuth/logout',
-  async (_, { dispatch }) => {
+  async (_, { dispatch, rejectWithValue }) => {
+    try {
+      await signOut(getFirebaseAuth());
+    } catch (error) {
+      return rejectWithValue(normalizeFirebaseAuthError(error));
+    }
     dispatch(logoutOwner());
+    await signOutOfGoogle();
     try {
       await removeOwnerToken();
-      return { tokenRemoved: true };
     } catch {
-      return { tokenRemoved: false };
+      // Nothing reads this token any more; a leftover one is harmless.
     }
+    return { signedOut: true };
   },
 );

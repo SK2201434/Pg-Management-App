@@ -24,6 +24,19 @@ export const Colors = {
   },
 } as const;
 
+/** Fixed brand palette used by the signed-out auth screens (not theme-dependent). */
+export const BrandColors = {
+  background: '#F3FBF7',
+  surface: '#FFFFFF',
+  textPrimary: '#202A2B',
+  textSecondary: '#737B78',
+  accent: '#6D9990',
+  border: '#E4E5DF',
+  buttonBackground: '#202A2B',
+  buttonText: '#FFFFFF',
+  error: '#D93025',
+} as const;
+
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 export const Fonts = Platform.select({
