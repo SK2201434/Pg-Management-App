@@ -10,6 +10,7 @@ import {
   selectIsInitialized,
   selectOwner,
 } from '@/features/auth/ownerAuthSelectors';
+import { ForgotPasswordScreen } from '@/features/auth/ForgotPasswordScreen';
 import { OwnerLoginScreen } from '@/features/auth/OwnerLoginScreen';
 import { observeOwnerAuthState } from '@/features/auth/ownerAuthObserver';
 import { OwnerRegisterScreen } from '@/features/auth/OwnerRegisterScreen';
@@ -68,12 +69,31 @@ export function OwnerAuthGate({ children }: OwnerAuthGateProps) {
 // Which signed-out screen is shown is local UI state, not part of the auth state. It lives in
 // its own component so it resets to the login screen whenever the user signs out again.
 function SignedOutScreens() {
-  const [authScreen, setAuthScreen] = useState<'login' | 'register'>('login');
+  const [authScreen, setAuthScreen] = useState<'login' | 'register' | 'forgotPassword'>('login');
+  // Email typed on the login screen, offered again on the Forgot Password screen.
+  const [forgotPasswordEmail, setForgotPasswordEmail] = useState('');
 
-  return authScreen === 'register' ? (
-    <OwnerRegisterScreen onShowLogin={() => setAuthScreen('login')} />
-  ) : (
-    <OwnerLoginScreen onShowRegister={() => setAuthScreen('register')} />
+  if (authScreen === 'register') {
+    return <OwnerRegisterScreen onShowLogin={() => setAuthScreen('login')} />;
+  }
+  if (authScreen === 'forgotPassword') {
+    // Forgot Password is only reachable from the login screen, so "back" is the login screen.
+    return (
+      <ForgotPasswordScreen
+        initialEmail={forgotPasswordEmail}
+        onBack={() => setAuthScreen('login')}
+        onShowLogin={() => setAuthScreen('login')}
+      />
+    );
+  }
+  return (
+    <OwnerLoginScreen
+      onShowRegister={() => setAuthScreen('register')}
+      onShowForgotPassword={(email) => {
+        setForgotPasswordEmail(email);
+        setAuthScreen('forgotPassword');
+      }}
+    />
   );
 }
 

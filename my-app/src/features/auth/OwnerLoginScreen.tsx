@@ -28,33 +28,28 @@ import {
   loginOwnerThunk,
   loginWithGoogleThunk,
 } from "@/features/auth/ownerAuthSlice";
-import { requestPasswordReset } from "@/features/auth/passwordReset";
 import { useAppDispatch, useAppSelector } from "@/store/hooks";
 
 const GOOGLE_LOGO = require("../../../assets/images/assets/Google_Logo.png");
 
-type OwnerLoginScreenProps = { onShowRegister: () => void };
+type OwnerLoginScreenProps = {
+  onShowRegister: () => void;
+  /** Opens the Forgot Password screen, carrying over whatever email was typed so far. */
+  onShowForgotPassword: (email: string) => void;
+};
 
-const RESET_SENT_MESSAGE =
-  "If an account exists for this email, a password reset link has been sent.";
-
-type ResetFeedback = { kind: "success" | "error"; text: string };
-
-export function OwnerLoginScreen({ onShowRegister }: OwnerLoginScreenProps) {
+export function OwnerLoginScreen({
+  onShowRegister,
+  onShowForgotPassword,
+}: OwnerLoginScreenProps) {
   const dispatch = useAppDispatch();
   const { login: isLoginPending, google: isGooglePending } =
     useAppSelector(selectAuthLoading);
   const [submitError, setSubmitError] = useState<string | null>(null);
-  const [isResetting, setIsResetting] = useState(false);
-  const [resetFeedback, setResetFeedback] = useState<ResetFeedback | null>(
-    null,
-  );
-
   const {
     control,
     handleSubmit,
     getValues,
-    trigger,
     formState: { errors, isSubmitting },
   } = useForm<OwnerLoginFormValues>({
     resolver: zodResolver(ownerLoginSchema),
@@ -62,14 +57,13 @@ export function OwnerLoginScreen({ onShowRegister }: OwnerLoginScreenProps) {
   });
 
   const isSigningIn = isSubmitting || isLoginPending;
-  const isBusy = isSigningIn || isResetting || isGooglePending;
+  const isBusy = isSigningIn || isGooglePending;
 
   // Signing in updates the Firebase auth state, which OwnerAuthGate observes and then swaps
   // this screen out. The email arrives trimmed from the schema.
   const onSubmit = handleSubmit(async (values) => {
     if (isBusy) return;
     setSubmitError(null);
-    setResetFeedback(null);
     try {
       await dispatch(loginOwnerThunk(values)).unwrap();
     } catch (error) {
@@ -82,7 +76,6 @@ export function OwnerLoginScreen({ onShowRegister }: OwnerLoginScreenProps) {
   const onGoogleSignIn = async () => {
     if (isBusy) return;
     setSubmitError(null);
-    setResetFeedback(null);
     try {
       await dispatch(loginWithGoogleThunk()).unwrap();
     } catch (error) {
@@ -90,22 +83,9 @@ export function OwnerLoginScreen({ onShowRegister }: OwnerLoginScreenProps) {
     }
   };
 
-  const onForgotPassword = async () => {
+  const onForgotPassword = () => {
     if (isBusy) return;
-    setSubmitError(null);
-    setResetFeedback(null);
-
-    // Validates only the email field and shows its message (e.g. "Email is required.").
-    if (!(await trigger("email"))) return;
-
-    setIsResetting(true);
-    const error = await requestPasswordReset(getValues("email").trim().toLowerCase());
-    setIsResetting(false);
-    setResetFeedback(
-      error === null
-        ? { kind: "success", text: RESET_SENT_MESSAGE }
-        : { kind: "error", text: error.message },
-    );
+    onShowForgotPassword(getValues("email"));
   };
 
   return (
@@ -168,9 +148,7 @@ export function OwnerLoginScreen({ onShowRegister }: OwnerLoginScreenProps) {
                   hitSlop={8}
                   style={styles.forgot}
                 >
-                  <Text style={styles.forgotText}>
-                    {isResetting ? "Sending reset link..." : "Forgot password?"}
-                  </Text>
+                  <Text style={styles.forgotText}>Forgot password?</Text>
                 </Pressable>
 
                 {submitError ? (
@@ -178,19 +156,6 @@ export function OwnerLoginScreen({ onShowRegister }: OwnerLoginScreenProps) {
                     {submitError}
                   </Text>
                 ) : null}
-                {resetFeedback ? (
-                  <Text
-                    style={
-                      resetFeedback.kind === "error"
-                        ? styles.errorText
-                        : styles.successText
-                    }
-                    accessibilityRole="alert"
-                  >
-                    {resetFeedback.text}
-                  </Text>
-                ) : null}
-
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel="Sign In"
@@ -295,7 +260,6 @@ const styles = StyleSheet.create({
   forgot: { alignSelf: "flex-end" },
   forgotText: { fontSize: 14, fontWeight: "600", color: BrandColors.accent },
   errorText: { fontSize: 14, color: BrandColors.error },
-  successText: { fontSize: 14, color: BrandColors.textPrimary },
   primaryButton: {
     minHeight: 56,
     alignItems: "center",

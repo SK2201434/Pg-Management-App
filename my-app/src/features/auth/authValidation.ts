@@ -30,6 +30,9 @@ export const ownerLoginSchema = z.object({
   password: z.string({ error: 'Password is required.' }).min(1, 'Password is required.'),
 });
 
+export const forgotPasswordSchema = z.object({ email });
+
+export type ForgotPasswordFormValues = z.infer<typeof forgotPasswordSchema>;
 export type OwnerRegisterFormValues = z.infer<typeof ownerRegisterSchema>;
 export type OwnerLoginFormValues = z.infer<typeof ownerLoginSchema>;
 
