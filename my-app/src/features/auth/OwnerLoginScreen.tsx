@@ -2,18 +2,16 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import {
-  ActivityIndicator,
   Image,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { AppScrollView } from '@/components/app-scroll-view';
+import { AppButton } from "@/components/app-button";
 import { APP_TAGLINE } from "@/constants/brand";
 import { BrandColors } from "@/constants/theme";
 import { getAuthErrorMessage } from "@/features/auth/authErrorMessage";
@@ -90,11 +88,8 @@ export function OwnerLoginScreen({
 
   return (
     <SafeAreaView style={styles.root}>
-      <KeyboardAvoidingView
-        style={styles.root}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <ScrollView
+      <View style={styles.root}>
+        <AppScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
         >
@@ -141,38 +136,28 @@ export function OwnerLoginScreen({
                   editable={!isBusy}
                 />
 
-                <Pressable
-                  accessibilityRole="button"
+                <AppButton
+                  variant="ghost"
+                  size="sm"
+                  label="Forgot password?"
                   onPress={onForgotPassword}
                   disabled={isBusy}
-                  hitSlop={8}
                   style={styles.forgot}
-                >
-                  <Text style={styles.forgotText}>Forgot password?</Text>
-                </Pressable>
+                />
 
                 {submitError ? (
                   <Text style={styles.errorText} accessibilityRole="alert">
                     {submitError}
                   </Text>
                 ) : null}
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Sign In"
-                  accessibilityState={{ disabled: isBusy, busy: isSigningIn }}
-                  disabled={isBusy}
+                <AppButton
+                  variant="submit"
+                  label="Sign In"
+                  trailingIcon="arrow-forward"
+                  loading={isSigningIn}
+                  disabled={isBusy && !isSigningIn}
                   onPress={onSubmit}
-                  style={[styles.primaryButton, isBusy && styles.disabled]}
-                >
-                  {isSigningIn ? (
-                    <ActivityIndicator color={BrandColors.buttonText} />
-                  ) : (
-                    <View style={styles.primaryButtonContent}>
-                      <Text style={styles.primaryButtonText}>Sign In</Text>
-                      <Text style={styles.primaryButtonText}>{"→"}</Text>
-                    </View>
-                  )}
-                </Pressable>
+                />
               </View>
 
               <View style={styles.dividerRow}>
@@ -182,30 +167,14 @@ export function OwnerLoginScreen({
               </View>
 
               <View style={styles.googleBlock}>
-                <Pressable
-                  accessibilityRole="button"
-                  accessibilityLabel="Continue with Google"
-                  accessibilityState={{
-                    disabled: isBusy,
-                    busy: isGooglePending,
-                  }}
-                  disabled={isBusy}
+                <AppButton
+                  variant="secondary"
+                  label="Continue with Google"
+                  leading={<Image source={GOOGLE_LOGO} style={styles.googleLogo} resizeMode="contain" />}
+                  loading={isGooglePending}
+                  disabled={isBusy && !isGooglePending}
                   onPress={onGoogleSignIn}
-                  style={[styles.googleButton, isBusy && styles.disabled]}
-                >
-                  {isGooglePending ? (
-                    <ActivityIndicator color={BrandColors.accent} />
-                  ) : (
-                    <>
-                      <Image
-                        source={GOOGLE_LOGO}
-                        style={styles.googleLogo}
-                        resizeMode="contain"
-                      />
-                      <Text style={styles.googleText}>Continue with Google</Text>
-                    </>
-                  )}
-                </Pressable>
+                />
               </View>
 
               <Pressable
@@ -229,8 +198,8 @@ export function OwnerLoginScreen({
             <Text style={styles.tagline}>{APP_TAGLINE}</Text>
             <View style={styles.taglineLine} />
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </AppScrollView>
+      </View>
     </SafeAreaView>
   );
 }
@@ -258,21 +227,7 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 16, lineHeight: 24, color: BrandColors.textSecondary },
   form: { gap: 14 },
   forgot: { alignSelf: "flex-end" },
-  forgotText: { fontSize: 14, fontWeight: "600", color: BrandColors.accent },
   errorText: { fontSize: 14, color: BrandColors.error },
-  primaryButton: {
-    minHeight: 56,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 16,
-    backgroundColor: BrandColors.buttonBackground,
-  },
-  primaryButtonContent: { flexDirection: "row", alignItems: "center", gap: 10 },
-  primaryButtonText: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: BrandColors.buttonText,
-  },
   disabled: { opacity: 0.6 },
   dividerRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   dividerLine: {
@@ -287,23 +242,7 @@ const styles = StyleSheet.create({
     color: BrandColors.textSecondary,
   },
   googleBlock: { gap: 8 },
-  googleButton: {
-    minHeight: 56,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: BrandColors.border,
-    backgroundColor: BrandColors.surface,
-  },
   googleLogo: { width: 20, height: 20 },
-  googleText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: BrandColors.textPrimary,
-  },
   note: { fontSize: 13, textAlign: "center", color: BrandColors.textSecondary },
   createAccount: { alignItems: "center", paddingVertical: 4 },
   createAccountText: { fontSize: 15, color: BrandColors.textSecondary },

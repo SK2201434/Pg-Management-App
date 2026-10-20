@@ -45,10 +45,20 @@ const phone = z
     message: 'Enter a valid phone number.',
   });
 
+// Optional property referral code (tenants). Codes are 20+ URL-safe characters.
+const referralCode = z
+  .string()
+  .trim()
+  .refine((value) => value === '' || /^[A-Za-z0-9_-]{20,128}$/.test(value), {
+    message: 'Enter the full referral code exactly as you received it.',
+  });
+
 // Form-only schema: `confirm_password` is validated on the client and never sent to the API.
 export const ownerRegisterFormSchema = ownerRegisterSchema
   .extend({
     phone,
+    gender: z.enum(['male', 'female'], { error: 'Choose male or female.' }),
+    referral_code: referralCode,
     confirm_password: z
       .string({ error: 'Please confirm your password.' })
       .min(1, 'Please confirm your password.'),

@@ -1,7 +1,4 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
+/** Colors used by the themed components, defined for light and dark mode. */
 
 import '@/global.css';
 
@@ -27,6 +24,8 @@ export const Colors = {
 /** Fixed brand palette used by the signed-out auth screens (not theme-dependent). */
 export const BrandColors = {
   background: '#F3FBF7',
+  /** Page background of the signed-in screens. */
+  canvas: '#F5F4EF',
   surface: '#FFFFFF',
   textPrimary: '#202A2B',
   textSecondary: '#737B78',
@@ -34,7 +33,12 @@ export const BrandColors = {
   border: '#E4E5DF',
   buttonBackground: '#202A2B',
   buttonText: '#FFFFFF',
-  error: '#D93025',
+  /** Final "submit" buttons (Sign In, Create Account, Save Property), dark like the primary brand colour. All other buttons are `accent`. */
+  submit: '#202A2B',
+  /** The app's one red: errors, overdue, destructive actions. */
+  error: '#B65D57',
+  /** A soft tint of `error` for badges and icon backgrounds. */
+  errorTint: '#F6E9E8',
 } as const;
 
 export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;

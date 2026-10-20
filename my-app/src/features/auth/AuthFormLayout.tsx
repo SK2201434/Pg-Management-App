@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppScrollView } from '@/components/app-scroll-view';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { MaxContentWidth, Spacing } from '@/constants/theme';
@@ -13,19 +14,13 @@ export function AuthFormLayout({ title, children }: AuthFormLayoutProps) {
   return (
     <ThemedView style={styles.root}>
       <SafeAreaView style={styles.root}>
-        <KeyboardAvoidingView
-          style={styles.root}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView
-            contentContainerStyle={styles.content}
-            keyboardShouldPersistTaps="handled">
-            <ThemedText type="smallBold" themeColor="textSecondary" style={styles.appName}>
-              Hostel &amp; PG Management
-            </ThemedText>
-            <ThemedText type="subtitle">{title}</ThemedText>
-            {children}
-          </ScrollView>
-        </KeyboardAvoidingView>
+        <AppScrollView contentContainerStyle={styles.content}>
+          <ThemedText type="smallBold" themeColor="textSecondary" style={styles.appName}>
+            Hostel &amp; PG Management
+          </ThemedText>
+          <ThemedText type="subtitle">{title}</ThemedText>
+          {children}
+        </AppScrollView>
       </SafeAreaView>
     </ThemedView>
   );

@@ -1,11 +1,12 @@
 import { useState } from 'react';
-import { Pressable, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 
+import { AppButton } from '@/components/app-button';
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
 import { getAuthErrorMessage } from '@/features/auth/authErrorMessage';
 import { logoutOwnerThunk } from '@/features/auth/ownerAuthSlice';
 import { useAppDispatch } from '@/store/hooks';
+import { BrandColors } from '@/constants/theme';
 
 // Signs out of Firebase. On success the auth observer updates Redux and OwnerAuthGate returns to
 // the login screen; on failure the owner stays signed in and the error is shown here.
@@ -28,14 +29,13 @@ export function SignOutButton() {
 
   return (
     <>
-      <Pressable
-        accessibilityRole="button"
-        accessibilityState={{ disabled: isSigningOut, busy: isSigningOut }}
+      <AppButton
+        variant="secondary"
+        size="sm"
+        label={isSigningOut ? 'Signing out…' : 'Sign out'}
         disabled={isSigningOut}
         onPress={onPress}
-        hitSlop={Spacing.two}>
-        <ThemedText type="linkPrimary">{isSigningOut ? 'Signing out…' : 'Sign out'}</ThemedText>
-      </Pressable>
+      />
       {error ? (
         <ThemedText type="small" style={styles.error} accessibilityRole="alert">
           {error}
@@ -45,4 +45,4 @@ export function SignOutButton() {
   );
 }
 
-const styles = StyleSheet.create({ error: { color: '#D93025' } });
+const styles = StyleSheet.create({ error: { color: BrandColors.error } });

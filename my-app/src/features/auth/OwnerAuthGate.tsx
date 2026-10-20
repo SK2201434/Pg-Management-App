@@ -1,6 +1,8 @@
+import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
+import { StyleSheet } from 'react-native';
 
+import { AppButton } from '@/components/app-button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
@@ -10,10 +12,12 @@ import {
   selectIsInitialized,
   selectOwner,
 } from '@/features/auth/ownerAuthSelectors';
+import { BrandedLoading } from '@/features/auth/BrandedLoading';
 import { ForgotPasswordScreen } from '@/features/auth/ForgotPasswordScreen';
 import { OwnerLoginScreen } from '@/features/auth/OwnerLoginScreen';
 import { observeOwnerAuthState } from '@/features/auth/ownerAuthObserver';
 import { OwnerRegisterScreen } from '@/features/auth/OwnerRegisterScreen';
+import { VerifyEmailScreen } from '@/features/auth/VerifyEmailScreen';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 
 type OwnerAuthGateProps = { children: ReactNode };
@@ -36,16 +40,18 @@ export function OwnerAuthGate({ children }: OwnerAuthGateProps) {
   // before the persisted session has been read.
   useEffect(() => observeOwnerAuthState(dispatch), [dispatch, attempt]);
 
+  // The native splash stays up until the persisted session has been read.
+  useEffect(() => {
+    if (isInitialized) SplashScreen.hideAsync().catch(() => {});
+  }, [isInitialized]);
+
   if (!isInitialized) {
-    return (
-      <ThemedView style={styles.container}>
-        <ActivityIndicator />
-      </ThemedView>
-    );
+    return <BrandedLoading />;
   }
 
   if (isAuthenticated && owner) {
-    return children;
+    // An unverified email/password account never reaches profile creation or a dashboard.
+    return owner.emailVerified ? children : <VerifyEmailScreen />;
   }
 
   // The observer reported an error, so the session state is unknown; the user can retry.
@@ -56,9 +62,7 @@ export function OwnerAuthGate({ children }: OwnerAuthGateProps) {
           Couldn&apos;t restore your session
         </ThemedText>
         <ThemedText style={styles.text}>{restoreError.message}</ThemedText>
-        <Pressable accessibilityRole="button" onPress={() => setAttempt((n) => n + 1)}>
-          <ThemedText type="linkPrimary">Retry</ThemedText>
-        </Pressable>
+        <AppButton label="Retry" onPress={() => setAttempt((n) => n + 1)} />
       </ThemedView>
     );
   }

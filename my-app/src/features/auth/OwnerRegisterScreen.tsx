@@ -1,13 +1,9 @@
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useRef, useState } from 'react';
-import { useForm } from 'react-hook-form';
+import { Controller, useForm } from 'react-hook-form';
 import {
-  ActivityIndicator,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -15,6 +11,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { AppScrollView } from '@/components/app-scroll-view';
+import { AppButton } from '@/components/app-button';
+import { GenderSelect } from '@/components/gender-select';
 import { APP_TAGLINE } from '@/constants/brand';
 import { AccountRoles, type AccountType } from '@/constants/account';
 import { BrandColors } from '@/constants/theme';
@@ -30,9 +29,9 @@ import { useAppDispatch } from '@/store/hooks';
 
 type OwnerRegisterScreenProps = { onShowLogin: () => void };
 
-// The selected account type is signup intent only. It changes the copy and the button, and is not
-// sent anywhere yet: registration is the same Firebase flow for both, and the actual role must be
-// assigned by trusted provisioning, never by the client.
+// The selected account type (and optional referral code) is signup intent. It is saved on the
+// device and used to create the profile once the email is verified; the Firestore rules, not the
+// client, decide whether the role and referral are accepted.
 const MODE_COPY: Record<
   AccountType,
   { title: string; subtitle: string; button: string; switchLabel: string; switchIcon: string }
@@ -69,16 +68,33 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
     formState: { errors, isSubmitting },
   } = useForm<OwnerRegisterFormInput>({
     resolver: zodResolver(ownerRegisterFormSchema),
-    defaultValues: { full_name: '', email: '', phone: '', password: '', confirm_password: '' },
+    defaultValues: {
+      full_name: '',
+      email: '',
+      phone: '',
+      referral_code: '',
+      password: '',
+      confirm_password: '',
+    },
   });
 
-  // Registering also signs the user in; OwnerAuthGate then swaps this screen out. `phone` and
-  // `confirm_password` are validated on the client and not sent: registration has no phone field.
-  const onSubmit = handleSubmit(async ({ full_name, email, password }) => {
+  // Registering also signs the user in; OwnerAuthGate then swaps this screen out for the
+  // verify-email screen. `confirm_password` is validated on the client and not sent.
+  const onSubmit = handleSubmit(async ({ full_name, email, password, phone, referral_code, gender }) => {
     if (isSubmitting) return;
     setSubmitError(null);
     try {
-      await dispatch(registerOwnerThunk({ full_name, email, password })).unwrap();
+      await dispatch(
+        registerOwnerThunk({
+          full_name,
+          email,
+          password,
+          accountType: mode,
+          phone: phone.trim() || undefined,
+          gender,
+          referralCode: mode === AccountRoles.Tenant ? referral_code.trim() || undefined : undefined,
+        }),
+      ).unwrap();
     } catch (error) {
       setSubmitError(getAuthErrorMessage(error));
     }
@@ -98,11 +114,8 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
 
   return (
     <SafeAreaView style={styles.root}>
-      <KeyboardAvoidingView
-        style={styles.root}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <View style={styles.root}>
         <View style={styles.appBar}>
-          <HostellLogo />
           <Pressable
             ref={menuButtonRef}
             accessibilityRole="button"
@@ -115,11 +128,13 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
           </Pressable>
         </View>
 
-        <ScrollView
+        <AppScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled">
           <View style={styles.centerArea}>
           <View style={styles.content}>
+            <HostellLogo />
+
             <View style={styles.heading}>
               <Text style={styles.title} accessibilityRole="header">
                 {copy.title}
@@ -163,6 +178,25 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
                 returnKeyType="next"
                 editable={!isSubmitting}
               />
+              <Controller
+                control={control}
+                name="gender"
+                render={({ field }) => (
+                  <GenderSelect value={field.value} onChange={field.onChange} error={errors.gender?.message} disabled={isSubmitting} />
+                )}
+              />
+              {mode === AccountRoles.Tenant ? (
+                <LoginTextField
+                  control={control}
+                  name="referral_code"
+                  label="Referral code (optional)"
+                  error={errors.referral_code?.message}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  returnKeyType="next"
+                  editable={!isSubmitting}
+                />
+              ) : null}
               <LoginTextField
                 control={control}
                 name="password"
@@ -195,22 +229,13 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
                 </Text>
               ) : null}
 
-              <Pressable
-                accessibilityRole="button"
-                accessibilityLabel={copy.button}
-                accessibilityState={{ disabled: isSubmitting, busy: isSubmitting }}
-                disabled={isSubmitting}
+              <AppButton
+                variant="submit"
+                label={copy.button}
+                trailingIcon="arrow-forward"
+                loading={isSubmitting}
                 onPress={onSubmit}
-                style={[styles.primaryButton, isSubmitting && styles.disabled]}>
-                {isSubmitting ? (
-                  <ActivityIndicator color={BrandColors.buttonText} />
-                ) : (
-                  <View style={styles.primaryButtonContent}>
-                    <Text style={styles.primaryButtonText}>{copy.button}</Text>
-                    <Text style={styles.primaryButtonText}>{'→'}</Text>
-                  </View>
-                )}
-              </Pressable>
+              />
             </View>
 
             <View style={styles.motif} accessibilityElementsHidden>
@@ -236,8 +261,8 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
             <Text style={styles.tagline}>{APP_TAGLINE}</Text>
             <View style={styles.taglineLine} />
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </AppScrollView>
+      </View>
 
       <Modal
         visible={menuPosition !== null}
@@ -266,7 +291,7 @@ const styles = StyleSheet.create({
   appBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-end',
     paddingHorizontal: 24,
     paddingTop: 16,
     paddingBottom: 8,
@@ -288,16 +313,6 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 16, lineHeight: 24, color: BrandColors.textSecondary },
   form: { gap: 14 },
   errorText: { fontSize: 14, color: BrandColors.error },
-  primaryButton: {
-    minHeight: 56,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 16,
-    backgroundColor: BrandColors.buttonBackground,
-  },
-  primaryButtonContent: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  primaryButtonText: { fontSize: 16, fontWeight: '700', color: BrandColors.buttonText },
-  disabled: { opacity: 0.6 },
   motif: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
   motifLine: { width: 48, height: StyleSheet.hairlineWidth, backgroundColor: BrandColors.border },
   motifDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: BrandColors.accent },

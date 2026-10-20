@@ -15,6 +15,14 @@ export type AccountRole = (typeof AccountRoles)[keyof typeof AccountRoles];
  */
 export type AccountType = AccountRole;
 
+/** Gender options offered on sign-up and when adding a tenant. */
+export const GENDERS = [
+  { value: 'male', label: 'Male' },
+  { value: 'female', label: 'Female' },
+] as const;
+export type Gender = (typeof GENDERS)[number]['value'];
+export const isGender = (value: unknown): value is Gender => value === 'male' || value === 'female';
+
 /** Whether an account may use the app. There is no approval step: new accounts are `active`. */
 export const AccountStatuses = {
   Active: 'active',

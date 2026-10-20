@@ -1,6 +1,7 @@
 import { createAsyncThunk, createSlice, type PayloadAction } from '@reduxjs/toolkit';
 import {
   createUserWithEmailAndPassword,
+  sendEmailVerification,
   signInWithEmailAndPassword,
   signOut,
   updateProfile,
@@ -8,6 +9,7 @@ import {
 
 import { normalizeApiError, type NormalizedApiError } from '@/api/errors';
 import { getFirebaseAuth } from '@/config/firebase';
+import type { AccountType, Gender } from '@/constants/account';
 import type {
   OwnerLoginRequest,
   OwnerRegisterRequest,
@@ -19,7 +21,20 @@ import {
 } from '@/features/auth/firebaseAuthError';
 import { signInWithGoogle, signOutOfGoogle } from '@/features/auth/googleSignIn';
 import { removeOwnerToken } from '@/features/auth/ownerTokenStorage';
+import { recordInviteAttribution } from '@/features/referral/referralService';
+import { saveRegistrationIntent } from '@/features/auth/registrationIntent';
 import { toOwnerUser } from '@/features/auth/ownerUser';
+
+/** What the Create Account screen submits. `accountType`/`referralCode` are intent, not a grant. */
+export type RegisterOwnerArgs = OwnerRegisterRequest & {
+  accountType: AccountType;
+  phone?: string;
+  gender?: Gender;
+  referralCode?: string;
+};
+
+/** Result of `registerOwnerThunk`. */
+export type RegisterResult = { verificationEmailSent: boolean };
 
 type AuthOperation = 'register' | 'login' | 'google';
 
@@ -28,6 +43,8 @@ export type AuthState = {
   isAuthenticated: boolean;
   /** False until Firebase has reported the persisted session once (or failed to). */
   isInitialized: boolean;
+  /** True when the account was created but the verification email could not be sent. */
+  verificationEmailFailed: boolean;
   loading: Record<AuthOperation, boolean>;
   errors: Record<AuthOperation | 'restoreSession', NormalizedApiError | null>;
 };
@@ -36,6 +53,7 @@ const initialState: AuthState = {
   owner: null,
   isAuthenticated: false,
   isInitialized: false,
+  verificationEmailFailed: false,
   loading: { register: false, login: false, google: false },
   errors: { register: null, login: null, google: null, restoreSession: null },
 };
@@ -49,10 +67,16 @@ export type OwnerLogoutResult = { signedOut: true };
 
 const createAuthThunk = createAsyncThunk.withTypes<{ rejectValue: NormalizedApiError }>();
 
-// Creating the account also signs the user in, so the observer authenticates them.
-export const registerOwnerThunk = createAuthThunk<void, OwnerRegisterRequest>(
+// Creating the account also signs the user in, so the observer authenticates them and the gate
+// shows the verify-email screen. No profile is written here: that happens only after the email is
+// verified (see userProvisioning.ts). The chosen type and referral are saved on the device, keyed
+// by UID, for that later step.
+export const registerOwnerThunk = createAuthThunk<RegisterResult, RegisterOwnerArgs>(
   'ownerAuth/registerOwner',
-  async ({ full_name, email, password }, { dispatch, rejectWithValue }) => {
+  async (
+    { full_name, email, password, accountType, phone, gender, referralCode },
+    { dispatch, rejectWithValue },
+  ) => {
     let credential;
     try {
       credential = await createUserWithEmailAndPassword(getFirebaseAuth(), email, password);
@@ -60,7 +84,29 @@ export const registerOwnerThunk = createAuthThunk<void, OwnerRegisterRequest>(
       return rejectWithValue(normalizeFirebaseAuthError(error));
     }
 
-    // The account exists at this point, so a failed name update must not fail registration.
+    // The account exists from here on, so nothing below may fail the registration: the verify
+    // screen can resend the email, and provisioning falls back to asking for the type once.
+    try {
+      await saveRegistrationIntent(credential.user.uid, {
+        accountType,
+        ...(phone ? { phone } : {}),
+        ...(gender ? { gender } : {}),
+        ...(referralCode ? { referralCode } : {}),
+      });
+    } catch {
+      // Missing intent is handled safely at provisioning time.
+    }
+
+    // A captured invite link is attributed to this brand-new account (never throws).
+    await recordInviteAttribution(credential.user.uid);
+
+    let verificationEmailSent = true;
+    try {
+      await sendEmailVerification(credential.user);
+    } catch {
+      verificationEmailSent = false;
+    }
+
     try {
       await updateProfile(credential.user, { displayName: full_name.trim() });
       // The observer already ran with no display name; publish the updated user.
@@ -68,6 +114,7 @@ export const registerOwnerThunk = createAuthThunk<void, OwnerRegisterRequest>(
     } catch {
       // The name can be set again later; the session is valid without it.
     }
+    return { verificationEmailSent };
   },
 );
 
@@ -103,6 +150,9 @@ const ownerAuthSlice = createSlice({
   name: 'ownerAuth',
   initialState,
   reducers: {
+    verificationEmailSendResult: (state, action: PayloadAction<boolean>) => {
+      state.verificationEmailFailed = !action.payload;
+    },
     authStateChanged: (state, action: PayloadAction<OwnerUser | null>) => {
       state.owner = action.payload;
       state.isAuthenticated = action.payload !== null;
@@ -124,8 +174,9 @@ const ownerAuthSlice = createSlice({
         state.loading.register = true;
         state.errors.register = null;
       })
-      .addCase(registerOwnerThunk.fulfilled, (state) => {
+      .addCase(registerOwnerThunk.fulfilled, (state, action) => {
         state.loading.register = false;
+        state.verificationEmailFailed = !action.payload.verificationEmailSent;
       })
       .addCase(registerOwnerThunk.rejected, (state, action) => {
         state.loading.register = false;
@@ -159,7 +210,12 @@ const ownerAuthSlice = createSlice({
 
 const ownerAuthReducer = ownerAuthSlice.reducer;
 
-export const { authStateChanged, authStateFailed, logoutOwner } = ownerAuthSlice.actions;
+export const {
+  authStateChanged,
+  authStateFailed,
+  logoutOwner,
+  verificationEmailSendResult,
+} = ownerAuthSlice.actions;
 export default ownerAuthReducer;
 
 // Signs out of Firebase first and clears Redux only once that succeeded, so the UI and the

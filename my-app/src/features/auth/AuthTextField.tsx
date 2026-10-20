@@ -8,7 +8,7 @@ import {
 import { Pressable, StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
 
 import { ThemedText } from '@/components/themed-text';
-import { Spacing } from '@/constants/theme';
+import { Spacing, BrandColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 type AuthTextFieldProps<T extends FieldValues> = Omit<
@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
     borderColor: 'transparent',
     paddingHorizontal: Spacing.three,
   },
-  inputRowError: { borderColor: '#D93025' },
+  inputRowError: { borderColor: BrandColors.error },
   input: { flex: 1, minHeight: 48, fontSize: 16 },
-  errorText: { color: '#D93025' },
+  errorText: { color: BrandColors.error },
 });

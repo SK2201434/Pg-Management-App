@@ -44,6 +44,8 @@ export type OwnerUser = {
   uid: string;
   email: string | null;
   displayName: string | null;
+  /** Whether Firebase has verified the email address (Google accounts arrive verified). */
+  emailVerified: boolean;
 };
 
 /**

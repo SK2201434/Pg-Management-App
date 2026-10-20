@@ -1,6 +1,8 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { getApp, getApps, initializeApp } from "firebase/app";
 import { getAuth, getReactNativePersistence, initializeAuth, type Auth } from "firebase/auth";
+import { getFirestore, type Firestore } from "firebase/firestore";
+import { getStorage, type FirebaseStorage } from "firebase/storage";
 import { Platform } from "react-native";
 
 const firebaseConfig = {
@@ -40,4 +42,15 @@ function getFirebaseAuth(): Auth {
   return authInstance;
 }
 
-export { app, getFirebaseAuth };
+// Firestore holds the user profile (role and status). Access is enforced by Security Rules.
+function getFirestoreDb(): Firestore {
+  return getFirestore(app);
+}
+
+// Property photos. Whether the bucket exists and is usable on the current plan is a Console
+// matter; uploads report their own failures.
+function getFirebaseStorage(): FirebaseStorage {
+  return getStorage(app);
+}
+
+export { app, getFirebaseAuth, getFirebaseStorage, getFirestoreDb };

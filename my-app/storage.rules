@@ -1,0 +1,24 @@
+rules_version = '2';
+
+// HOSTELL Storage rules. Property photos and room photos (file names starting with room_) live at
+// properties/{propertyId}/photos/{file}. Only the verified, active owner of that property can write them (ownership is read from Firestore), and
+// only small images. Everything else is denied. Reads go through the unguessable download URL
+// stored on the property; direct reads are limited to the owner.
+service firebase.storage {
+  match /b/{bucket}/o {
+    function ownsProperty(pid) {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && firestore.get(/databases/(default)/documents/properties/$(pid)).data.ownerUid
+             == request.auth.uid;
+    }
+
+    match /properties/{pid}/photos/{file} {
+      allow read: if ownsProperty(pid);
+      allow create, update: if ownsProperty(pid)
+        && request.resource.size < 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|heic|heif)');
+      allow delete: if ownsProperty(pid);
+    }
+  }
+}

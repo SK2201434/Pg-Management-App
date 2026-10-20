@@ -1,0 +1,592 @@
+rules_version = '2';
+
+// HOSTELL Security Rules. Everything not matched below is denied.
+//
+// Authorization lives in `users/{uid}` (role, status). Clients may create their own profile once
+// (verified email required) and afterwards change only displayName/phone. There is no platform
+// admin role: clients can never write one.
+//
+// Access-call budget (limits: 20 per batched write, 10 per operation): the referral batch
+// (users + referrals + members) uses at most 4 distinct access calls per operation.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- helpers ----------
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    // Enforced here, independent of the client. The claim refreshes with the ID token.
+    function verified() {
+      return signedIn() && request.auth.token.email_verified == true;
+    }
+
+    function userPath(uid) {
+      return /databases/$(database)/documents/users/$(uid);
+    }
+
+    function referralPath(code) {
+      return /databases/$(database)/documents/referrals/$(code);
+    }
+
+    function propertyPath(propertyId) {
+      return /databases/$(database)/documents/properties/$(propertyId);
+    }
+
+    function memberPath(propertyId, uid) {
+      return /databases/$(database)/documents/properties/$(propertyId)/members/$(uid);
+    }
+
+    function hasActiveProfile() {
+      return verified()
+        && exists(userPath(request.auth.uid))
+        && get(userPath(request.auth.uid)).data.status == 'active';
+    }
+
+    function isActiveOwner() {
+      return hasActiveProfile() && get(userPath(request.auth.uid)).data.role == 'owner';
+    }
+
+    function isShortString(value, max) {
+      return value is string && value.size() >= 1 && value.size() <= max;
+    }
+
+    // ---------- users/{uid} ----------
+
+    function validNewProfile(uid) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['uid', 'role', 'status', 'accountType', 'displayName', 'email',
+                               'phone', 'gender', 'referralCode', 'createdAt', 'updatedAt'])
+        && d.keys().hasAll(['uid', 'role', 'status', 'accountType', 'displayName', 'email',
+                            'createdAt', 'updatedAt'])
+        && d.uid == uid
+        && d.role in ['owner', 'tenant']
+        && d.accountType == d.role
+        && d.status == 'active'
+        && d.email == request.auth.token.email
+        && isShortString(d.displayName, 100)
+        && (!('phone' in d) || isShortString(d.phone, 20))
+        && (!('gender' in d) || d.gender in ['male', 'female'])
+        && d.createdAt == request.time
+        && d.updatedAt == request.time;
+    }
+
+    // A profile created through a referral: the same batch must also consume the referral and
+    // create the property membership (checked with getAfter), and the referral must be valid now.
+    function referralClaimOk(uid) {
+      let d = request.resource.data;
+      let before = get(referralPath(d.referralCode)).data;
+      let after = getAfter(referralPath(d.referralCode)).data;
+      let member = getAfter(memberPath(before.propertyId, uid)).data;
+      return d.role == 'tenant'
+        && d.referralCode is string
+        && before.type == 'property_join'
+        && before.status == 'active'
+        && before.useCount < before.maxUses
+        && before.expiresAt > request.time
+        && after.status == 'used'
+        && after.usedBy == uid
+        && member.tenantUid == uid
+        && member.referralCode == d.referralCode
+        && member.ownerUid == before.createdBy;
+    }
+
+    match /users/{uid} {
+      // Which derived notifications the owner has read. Each mark is { readAt } at an id of the
+      // owner's choosing, written only to their own path; it cannot be changed or removed.
+      match /notificationReads/{notificationId} {
+        allow get, list: if signedIn() && request.auth.uid == uid;
+        allow create: if signedIn() && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['readAt'])
+          && request.resource.data.readAt == request.time;
+        allow update, delete: if false;
+      }
+
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list: if false;
+
+      allow create: if verified()
+        && request.auth.uid == uid
+        && validNewProfile(uid)
+        && (!('referralCode' in request.resource.data) || referralClaimOk(uid));
+
+      allow update: if signedIn()
+        && request.auth.uid == uid
+        && resource.data.status == 'active'
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['displayName', 'phone', 'updatedAt'])
+        && isShortString(request.resource.data.displayName, 100)
+        && (!('phone' in request.resource.data) || isShortString(request.resource.data.phone, 20))
+        && request.resource.data.updatedAt == request.time;
+
+      allow delete: if false;
+    }
+
+    // ---------- referrals/{code}: single-use property-join codes ----------
+    // The code is the document ID, so a document can only be fetched by someone who has the code;
+    // listing is limited to the creating owner.
+
+    function validNewReferral(code) {
+      let d = request.resource.data;
+      return code.size() >= 20
+        && d.keys().hasOnly(['type', 'createdBy', 'propertyId', 'status', 'maxUses', 'useCount',
+                             'expiresAt', 'createdAt'])
+        && d.keys().hasAll(['type', 'createdBy', 'propertyId', 'status', 'maxUses', 'useCount',
+                            'expiresAt', 'createdAt'])
+        && d.type == 'property_join'
+        && d.createdBy == request.auth.uid
+        && d.status == 'active'
+        && d.maxUses == 1
+        && d.useCount == 0
+        && d.propertyId is string
+        && get(propertyPath(d.propertyId)).data.ownerUid == request.auth.uid
+        && d.expiresAt is timestamp
+        && d.expiresAt > request.time
+        && d.expiresAt <= request.time + duration.value(30, 'd')
+        && d.createdAt == request.time;
+    }
+
+    // The profile-less user claiming the code, in the same batch as their profile and membership.
+    // Two concurrent claims cannot both pass: rules see the committed `status`/`useCount`.
+    function validConsume(code) {
+      let d = request.resource.data;
+      let uid = request.auth.uid;
+      return verified()
+        && resource.data.status == 'active'
+        && resource.data.useCount < resource.data.maxUses
+        && resource.data.expiresAt > request.time
+        && d.diff(resource.data).affectedKeys().hasOnly(['status', 'useCount', 'usedBy', 'usedAt'])
+        && d.status == 'used'
+        && d.useCount == resource.data.useCount + 1
+        && d.usedBy == uid
+        && d.usedAt == request.time
+        && !exists(userPath(uid))
+        && getAfter(userPath(uid)).data.role == 'tenant'
+        && getAfter(userPath(uid)).data.referralCode == code
+        && getAfter(memberPath(resource.data.propertyId, uid)).data.tenantUid == uid;
+    }
+
+    function validRevoke() {
+      return isActiveOwner()
+        && resource.data.createdBy == request.auth.uid
+        && resource.data.status == 'active'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status == 'revoked';
+    }
+
+    match /referrals/{code} {
+      allow get: if verified();
+      allow list: if hasActiveProfile() && resource.data.createdBy == request.auth.uid;
+      allow create: if isActiveOwner() && validNewReferral(code);
+      allow update: if validRevoke() || validConsume(code);
+      allow delete: if false;
+    }
+
+    // ---------- HOSTELL invites: "refer a friend" (separate from the property-join referrals above) ----------
+    // inviteOwners/{uid}   the user's one invite code (create-only, so it never changes)
+    // inviteCodes/{code}   code -> owner uid (create-only; a taken code makes the batch fail, so codes are unique)
+    // inviteReferrals/{referredUid}  one record per referred account (the id makes a second one impossible):
+    //   `registered` is written by the new account at sign-up; `completed` by the same account once its
+    //   profile exists. Completion = verified email + an active profile with a display name.
+    // No reward or balance exists anywhere. Limits: whether a person really followed a link, and click
+    // tracking, cannot be proven by rules; the record is created by the referred account itself.
+    function inviteCodePath(code) {
+      return /databases/$(database)/documents/inviteCodes/$(code);
+    }
+
+    function inviteOwnerPath(uid) {
+      return /databases/$(database)/documents/inviteOwners/$(uid);
+    }
+
+    function validInviteCode(code) {
+      return code is string && code.matches('^[A-Z0-9]{10}$');
+    }
+
+    match /inviteOwners/{uid} {
+      allow get: if signedIn() && request.auth.uid == uid;
+      allow list: if false;
+      allow create: if hasActiveProfile()
+        && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['code', 'createdAt'])
+        && validInviteCode(request.resource.data.code)
+        && request.resource.data.createdAt == request.time
+        && getAfter(inviteCodePath(request.resource.data.code)).data.ownerUid == uid;
+      allow update, delete: if false;
+    }
+
+    match /inviteCodes/{code} {
+      // Readable by any signed-in user so a new account can check a code; it reveals only the owner uid.
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if hasActiveProfile()
+        && validInviteCode(code)
+        && request.resource.data.keys().hasOnly(['ownerUid', 'createdAt'])
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && getAfter(inviteOwnerPath(request.auth.uid)).data.code == code;
+      allow update, delete: if false;
+    }
+
+    match /inviteReferrals/{referredUid} {
+      allow get: if signedIn()
+        && (request.auth.uid == referredUid || resource.data.referrerUid == request.auth.uid);
+      allow list: if signedIn() && resource.data.referrerUid == request.auth.uid;
+
+      // A brand-new account (no profile yet) names a real code owner other than itself.
+      allow create: if signedIn()
+        && request.auth.uid == referredUid
+        && !exists(userPath(referredUid))
+        && request.resource.data.keys().hasOnly(['referrerUid', 'referredUid', 'code', 'status', 'registeredAt'])
+        && request.resource.data.referredUid == referredUid
+        && request.resource.data.status == 'registered'
+        && request.resource.data.registeredAt == request.time
+        && validInviteCode(request.resource.data.code)
+        && request.resource.data.referrerUid != referredUid
+        && get(inviteCodePath(request.resource.data.code)).data.ownerUid == request.resource.data.referrerUid;
+
+      allow update: if hasActiveProfile()
+        && request.auth.uid == referredUid
+        && resource.data.status == 'registered'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completedAt'])
+        && request.resource.data.status == 'completed'
+        && request.resource.data.completedAt == request.time
+        && get(userPath(referredUid)).data.displayName is string
+        && get(userPath(referredUid)).data.displayName.size() >= 1;
+      allow delete: if false;
+    }
+
+    // ---------- properties/{pid}: scoped to the owning owner ----------
+
+    function optionalText(d, key, max) {
+      return !(key in d) || isShortString(d[key], max);
+    }
+
+    function validPropertyExtras(d) {
+      return optionalText(d, 'location', 200)
+        && optionalText(d, 'description', 1000)
+        && optionalText(d, 'contactName', 100)
+        && optionalText(d, 'contactPhone', 20)
+        && optionalText(d, 'city', 100)
+        && optionalText(d, 'state', 100)
+        && optionalText(d, 'postalCode', 12)
+        && (!('geo' in d) || d.geo is latlng)
+        && (!('photos' in d) || (d.photos is list && d.photos.size() <= 4))
+        && (!('roomPhotos' in d) || (d.roomPhotos is list && d.roomPhotos.size() <= 4))
+        && (!('setupStatus' in d) || d.setupStatus in ['draft', 'ready'])
+        && (!('status' in d) || d.status in ['active', 'inactive']);
+    }
+
+    // The caller is an active owner and the parent property is theirs. Both reads hit the same
+    // two documents (profile, property) however many rooms/beds a batch writes.
+    function ownsProperty(pid) {
+      return isActiveOwner() && get(propertyPath(pid)).data.ownerUid == request.auth.uid;
+    }
+
+    // Owner-managed rooms. Rent is per bed, in whole rupees, and optional ("not configured").
+    // There is no occupancy field: occupancy comes from stays, never from these documents.
+    function validRoom(pid) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['ownerUid', 'propertyId', 'roomNumber', 'floor', 'sharing', 'ac',
+                               'rentPerBedInr', 'updatedAt'])
+        && d.keys().hasAll(['ownerUid', 'propertyId', 'roomNumber', 'sharing', 'ac', 'updatedAt'])
+        && d.ownerUid == request.auth.uid
+        && d.propertyId == pid
+        && isShortString(d.roomNumber, 20)
+        && (!('floor' in d) || (d.floor is int && d.floor >= 0 && d.floor <= 60))
+        && d.sharing is int && d.sharing >= 1 && d.sharing <= 12
+        && d.ac is bool
+        && (!('rentPerBedInr' in d)
+            || (d.rentPerBedInr is int && d.rentPerBedInr >= 1 && d.rentPerBedInr <= 1000000))
+        && d.updatedAt == request.time;
+    }
+
+    function validBed(pid, rid) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['ownerUid', 'propertyId', 'roomId', 'label', 'status', 'updatedAt'])
+        && d.keys().hasAll(['ownerUid', 'propertyId', 'roomId', 'label', 'status', 'updatedAt'])
+        && d.ownerUid == request.auth.uid
+        && d.propertyId == pid
+        && d.roomId == rid
+        && isShortString(d.label, 30)
+        && d.status in ['available', 'unavailable']
+        && d.updatedAt == request.time;
+    }
+
+    // Residents: tenants the owner adds by hand (no tenant account needed). One resident document is
+    // both the tenant record and the stay: room, bed, agreed rent, optional deposit, move-in date.
+    // bedAllocations/{bedId} claims a bed: it is create-only and its id is the bed id, so two residents
+    // can never hold the same bed, even if two saves race. The two documents are written in one batch
+    // and each rule checks the other with getAfter. The room/bed names are display snapshots that the
+    // rules compare with the real room and bed. Not enforced: IDs/documents (no upload is enabled).
+    function residentPath(pid, residentId) {
+      return /databases/$(database)/documents/properties/$(pid)/residents/$(residentId);
+    }
+
+    function roomPath(pid, roomId) {
+      return /databases/$(database)/documents/properties/$(pid)/rooms/$(roomId);
+    }
+
+    function bedPath(pid, roomId, bedId) {
+      return /databases/$(database)/documents/properties/$(pid)/rooms/$(roomId)/beds/$(bedId);
+    }
+
+    function allocationPath(pid, bedId) {
+      return /databases/$(database)/documents/properties/$(pid)/bedAllocations/$(bedId);
+    }
+
+    function validResident(pid, residentId) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['ownerUid', 'propertyId', 'roomId', 'bedId', 'roomNumber', 'bedLabel',
+                               'sharing', 'name', 'gender', 'phoneCountry', 'phone', 'email', 'address',
+                               'emergencyName', 'emergencyPhone', 'rentInr', 'depositInr', 'moveInDate',
+                               'status', 'createdAt'])
+        && d.keys().hasAll(['ownerUid', 'propertyId', 'roomId', 'bedId', 'roomNumber', 'bedLabel',
+                            'sharing', 'name', 'gender', 'phoneCountry', 'phone', 'rentInr', 'moveInDate', 'status',
+                            'createdAt'])
+        && d.ownerUid == request.auth.uid
+        && d.propertyId == pid
+        && d.roomId is string && d.bedId is string
+        && get(roomPath(pid, d.roomId)).data.propertyId == pid
+        && get(roomPath(pid, d.roomId)).data.roomNumber == d.roomNumber
+        && get(roomPath(pid, d.roomId)).data.sharing == d.sharing
+        && get(bedPath(pid, d.roomId, d.bedId)).data.status == 'available'
+        && get(bedPath(pid, d.roomId, d.bedId)).data.label == d.bedLabel
+        && isShortString(d.name, 100) && d.name.size() >= 2
+        && d.gender in ['male', 'female']
+        && d.phoneCountry == '+91'
+        && d.phone is string && d.phone.matches('^[0-9]{10}$')
+        && (!('email' in d) || isShortString(d.email, 120))
+        && (!('address' in d) || isShortString(d.address, 200))
+        && (!('emergencyName' in d) || isShortString(d.emergencyName, 100))
+        && (!('emergencyPhone' in d) || (d.emergencyPhone is string && d.emergencyPhone.matches('^[0-9]{10}$')))
+        && ('emergencyName' in d) == ('emergencyPhone' in d)
+        && d.rentInr is int && d.rentInr >= 1 && d.rentInr <= 1000000
+        && (!('depositInr' in d) || (d.depositInr is int && d.depositInr >= 0 && d.depositInr <= 10000000))
+        && d.moveInDate is timestamp
+        && d.status == 'active'
+        && d.createdAt == request.time
+        && getAfter(allocationPath(pid, d.bedId)).data.residentId == residentId;
+    }
+
+    // Editing a resident: only the contact fields change (never the bed, room, rent, deposit, dates or
+    // owner). A changed name must be mirrored on the bed claim in the same batch.
+    function validResidentEdit(pid) {
+      let d = request.resource.data;
+      let b = resource.data;
+      return d.diff(b).affectedKeys().hasOnly(['name', 'phone', 'email', 'address', 'emergencyName',
+                                                'emergencyPhone', 'updatedAt'])
+        && isShortString(d.name, 100) && d.name.size() >= 2
+        && d.phone is string && d.phone.matches('^[0-9]{10}$')
+        && (!('email' in d) || isShortString(d.email, 120))
+        && (!('address' in d) || isShortString(d.address, 200))
+        && (!('emergencyName' in d) || isShortString(d.emergencyName, 100))
+        && (!('emergencyPhone' in d) || (d.emergencyPhone is string && d.emergencyPhone.matches('^[0-9]{10}$')))
+        && ('emergencyName' in d) == ('emergencyPhone' in d)
+        && d.updatedAt == request.time
+        && (d.name == b.name || getAfter(allocationPath(pid, b.bedId)).data.residentName == d.name);
+    }
+
+    function validAllocation(pid, bedId) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['ownerUid', 'propertyId', 'roomId', 'bedId', 'residentId', 'residentName',
+                               'createdAt'])
+        && d.keys().hasAll(['ownerUid', 'propertyId', 'roomId', 'bedId', 'residentId', 'residentName',
+                            'createdAt'])
+        && d.ownerUid == request.auth.uid
+        && d.propertyId == pid
+        && d.bedId == bedId
+        && d.createdAt == request.time
+        && getAfter(residentPath(pid, d.residentId)).data.bedId == bedId
+        && getAfter(residentPath(pid, d.residentId)).data.roomId == d.roomId
+        && getAfter(residentPath(pid, d.residentId)).data.name == d.residentName;
+    }
+
+    // Rent. A charge is what one tenant (a member of the property) owes for one month; its id is
+    // `<tenantUid>_<YYYY-MM>`, so a tenant cannot be charged twice for a month. A payment is
+    // immutable and points at a charge of the same property and tenant; the amount cannot exceed
+    // the charge. Balances are never stored: they are charge minus the payments found.
+    // Not enforced here (rules cannot sum documents): several payments together exceeding a charge.
+    // Access calls per create: profile, property, and the member or charge document.
+    function chargePath(pid, chargeId) {
+      return /databases/$(database)/documents/properties/$(pid)/rentCharges/$(chargeId);
+    }
+
+    function validCharge(pid, chargeId) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['ownerUid', 'propertyId', 'tenantUid', 'period', 'amountInr', 'dueDate',
+                               'createdAt'])
+        && d.keys().hasAll(['ownerUid', 'propertyId', 'tenantUid', 'period', 'amountInr', 'dueDate',
+                            'createdAt'])
+        && d.ownerUid == request.auth.uid
+        && d.propertyId == pid
+        && d.tenantUid is string
+        && (exists(memberPath(pid, d.tenantUid)) || exists(residentPath(pid, d.tenantUid)))
+        && d.period is string
+        && d.period.matches('^20[0-9][0-9]-(0[1-9]|1[0-2])$')
+        && chargeId == d.tenantUid + '_' + d.period
+        && d.amountInr is int && d.amountInr >= 1 && d.amountInr <= 1000000
+        && d.dueDate is timestamp
+        && d.createdAt == request.time;
+    }
+
+    function validPayment(pid) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['ownerUid', 'propertyId', 'tenantUid', 'chargeId', 'amountInr', 'method',
+                               'paidOn', 'reference', 'note', 'createdAt'])
+        && d.keys().hasAll(['ownerUid', 'propertyId', 'tenantUid', 'chargeId', 'amountInr', 'method',
+                            'paidOn', 'createdAt'])
+        && d.ownerUid == request.auth.uid
+        && d.propertyId == pid
+        && d.chargeId is string
+        && get(chargePath(pid, d.chargeId)).data.ownerUid == request.auth.uid
+        && get(chargePath(pid, d.chargeId)).data.tenantUid == d.tenantUid
+        && d.amountInr is int && d.amountInr >= 1
+        && d.amountInr <= get(chargePath(pid, d.chargeId)).data.amountInr
+        && d.method in ['upi', 'cash', 'bank', 'cheque']
+        && d.paidOn is timestamp && d.paidOn <= request.time
+        && (!('reference' in d) || isShortString(d.reference, 60))
+        && (!('note' in d) || isShortString(d.note, 200))
+        && d.createdAt == request.time;
+    }
+
+    match /properties/{pid} {
+      allow get: if hasActiveProfile()
+        && (resource.data.ownerUid == request.auth.uid || exists(memberPath(pid, request.auth.uid)));
+      allow list: if hasActiveProfile() && resource.data.ownerUid == request.auth.uid;
+
+      // A property is created `draft` when rooms/beds/photos follow in later writes and flipped to
+      // `ready` once they are in place (see propertyCreation.ts). Legacy documents have no
+      // `setupStatus` and count as ready. `photos` can only be added by the update that finalizes.
+      allow create: if isActiveOwner()
+        && request.resource.data.keys().hasOnly(['ownerUid', 'name', 'location', 'description',
+             'contactName', 'contactPhone', 'city', 'state', 'postalCode', 'geo', 'setupStatus', 'status',
+             'createdAt', 'updatedAt'])
+        && request.resource.data.keys().hasAll(['ownerUid', 'name', 'location', 'city', 'state',
+             'postalCode', 'contactName', 'contactPhone', 'setupStatus', 'createdAt', 'updatedAt'])
+        && request.resource.data.ownerUid == request.auth.uid
+        && isShortString(request.resource.data.name, 120)
+        && validPropertyExtras(request.resource.data)
+        && isShortString(request.resource.data.location, 200)
+        && isShortString(request.resource.data.city, 100)
+        && isShortString(request.resource.data.state, 100)
+        && isShortString(request.resource.data.postalCode, 12)
+        && isShortString(request.resource.data.contactName, 100)
+        && isShortString(request.resource.data.contactPhone, 20)
+        && request.resource.data.setupStatus in ['draft', 'ready']
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time;
+
+      allow update: if isActiveOwner()
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['name', 'location', 'description', 'contactName', 'contactPhone', 'city',
+                       'state', 'postalCode', 'geo', 'photos', 'roomPhotos', 'setupStatus', 'status',
+                       'updatedAt'])
+        && isShortString(request.resource.data.name, 120)
+        && validPropertyExtras(request.resource.data)
+        && (!('setupStatus' in request.resource.data.diff(resource.data).affectedKeys())
+            || (resource.data.setupStatus == 'draft' && request.resource.data.setupStatus == 'ready'))
+        && request.resource.data.updatedAt == request.time;
+
+      allow delete: if isActiveOwner() && resource.data.ownerUid == request.auth.uid;
+
+      // properties/{pid}/rooms/{roomId}[/beds/{bedId}]: owner-only. List queries must filter on
+      // ownerUid == the caller's uid. Writes are idempotent (set() of an existing document is an
+      // update), so an interrupted multi-batch save can be retried without duplicates.
+      match /rooms/{roomId} {
+        allow get, list: if hasActiveProfile() && resource.data.ownerUid == request.auth.uid;
+        allow create: if ownsProperty(pid) && validRoom(pid);
+        allow update: if ownsProperty(pid) && resource.data.ownerUid == request.auth.uid
+          && validRoom(pid);
+        allow delete: if ownsProperty(pid) && resource.data.ownerUid == request.auth.uid;
+
+        match /beds/{bedId} {
+          allow get, list: if hasActiveProfile() && resource.data.ownerUid == request.auth.uid;
+          allow create: if ownsProperty(pid) && validBed(pid, roomId)
+            && request.resource.data.status == 'available';
+          allow update: if ownsProperty(pid) && resource.data.ownerUid == request.auth.uid
+            && validBed(pid, roomId);
+          allow delete: if ownsProperty(pid) && resource.data.ownerUid == request.auth.uid;
+        }
+      }
+
+      match /residents/{residentId} {
+        allow get, list: if hasActiveProfile() && resource.data.ownerUid == request.auth.uid;
+        allow create: if ownsProperty(pid) && validResident(pid, residentId);
+        allow update: if ownsProperty(pid) && resource.data.ownerUid == request.auth.uid
+          && validResidentEdit(pid);
+        // Removing a resident (e.g. a mistaken entry) is the owner's, together with the bed claim.
+        allow delete: if ownsProperty(pid) && resource.data.ownerUid == request.auth.uid;
+      }
+
+      match /bedAllocations/{bedId} {
+        allow get, list: if hasActiveProfile() && resource.data.ownerUid == request.auth.uid;
+        allow create: if ownsProperty(pid) && validAllocation(pid, bedId);
+        // Only the name snapshot, and only to match the resident's edited name (same batch).
+        allow update: if ownsProperty(pid) && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['residentName'])
+          && getAfter(residentPath(pid, resource.data.residentId)).data.name == request.resource.data.residentName;
+        allow delete: if ownsProperty(pid) && resource.data.ownerUid == request.auth.uid;
+      }
+
+      match /rentCharges/{chargeId} {
+        allow get, list: if hasActiveProfile() && resource.data.ownerUid == request.auth.uid;
+        allow create: if ownsProperty(pid) && validCharge(pid, chargeId);
+        allow update, delete: if false;
+      }
+
+      match /payments/{paymentId} {
+        allow get, list: if hasActiveProfile() && resource.data.ownerUid == request.auth.uid;
+        allow create: if ownsProperty(pid) && validPayment(pid);
+        allow update, delete: if false;
+      }
+
+      // A membership is created only by the referral batch: the tenant joins one property and
+      // gains no ownership of it.
+      match /members/{tenantUid} {
+        allow get: if hasActiveProfile()
+          && (request.auth.uid == tenantUid || resource.data.ownerUid == request.auth.uid);
+        allow list: if hasActiveProfile() && resource.data.ownerUid == request.auth.uid;
+
+        allow create: if verified()
+          && request.auth.uid == tenantUid
+          && request.resource.data.keys().hasOnly(['tenantUid', 'propertyId', 'ownerUid',
+               'displayName', 'referralCode', 'status', 'joinedAt'])
+          && request.resource.data.keys().hasAll(['tenantUid', 'propertyId', 'ownerUid',
+               'displayName', 'referralCode', 'status', 'joinedAt'])
+          && request.resource.data.tenantUid == tenantUid
+          && request.resource.data.propertyId == pid
+          && request.resource.data.status == 'active'
+          && request.resource.data.joinedAt == request.time
+          && get(referralPath(request.resource.data.referralCode)).data.propertyId == pid
+          && get(referralPath(request.resource.data.referralCode)).data.createdBy
+               == request.resource.data.ownerUid
+          && getAfter(referralPath(request.resource.data.referralCode)).data.usedBy == tenantUid
+          && getAfter(userPath(tenantUid)).data.role == 'tenant'
+          && getAfter(userPath(tenantUid)).data.displayName == request.resource.data.displayName;
+
+        allow update: if false;
+        allow delete: if isActiveOwner() && resource.data.ownerUid == request.auth.uid;
+      }
+    }
+
+    // ---------- stays/{id}: skeleton showing owner/tenant scoping (no UI yet) ----------
+
+    match /stays/{stayId} {
+      allow get, list: if hasActiveProfile()
+        && (resource.data.ownerUid == request.auth.uid || resource.data.tenantUid == request.auth.uid);
+
+      allow create: if isActiveOwner()
+        && request.resource.data.ownerUid == request.auth.uid
+        && get(propertyPath(request.resource.data.propertyId)).data.ownerUid == request.auth.uid
+        && exists(memberPath(request.resource.data.propertyId, request.resource.data.tenantUid));
+
+      allow update: if isActiveOwner()
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']);
+
+      allow delete: if false;
+    }
+  }
+}

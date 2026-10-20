@@ -5,3 +5,5 @@ export const selectIsAuthenticated = (state: RootState) => state.ownerAuth.isAut
 export const selectIsInitialized = (state: RootState) => state.ownerAuth.isInitialized;
 export const selectAuthLoading = (state: RootState) => state.ownerAuth.loading;
 export const selectAuthErrors = (state: RootState) => state.ownerAuth.errors;
+export const selectVerificationEmailFailed = (state: RootState) =>
+  state.ownerAuth.verificationEmailFailed;

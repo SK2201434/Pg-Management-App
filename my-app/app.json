@@ -1,41 +1,51 @@
 {
   "expo": {
-    "name": "my-app",
+    "name": "HOSTELL",
     "slug": "my-app",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/assets/Hostell_Logo.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
-    "ios": {
-      "icon": "./assets/expo.icon"
-    },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#F3FBF7",
+        "foregroundImage": "./assets/images/assets/Hostell_Logo.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.myapp"
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/assets/Hostell_Logo.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 76
+          "backgroundColor": "#F3FBF7",
+          "image": "./assets/images/assets/Hostell_Logo.png",
+          "imageWidth": 200
         }
       ],
       "expo-secure-store",
-      "@react-native-google-signin/google-signin"
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "HOSTELL uses your location to fill in your property's address."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "HOSTELL needs access to your photos so you can add pictures of your property.",
+          "cameraPermission": "HOSTELL uses the camera so you can take photos of your property and rooms.",
+          "microphonePermission": false
+        }
+      ],
+      "@react-native-google-signin/google-signin",
+      "@react-native-community/datetimepicker"
     ],
     "experiments": {
       "typedRoutes": true,
