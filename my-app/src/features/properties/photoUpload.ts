@@ -1,18 +1,27 @@
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
-import {
-  deleteObject,
-  getDownloadURL,
-  ref,
-  uploadBytesResumable,
-} from 'firebase/storage';
+import { deleteObject, ref } from 'firebase/storage';
 
+import { CloudinaryConfigError } from '@/config/cloudinary';
 import { getFirebaseStorage } from '@/config/firebase';
 import type { PhotoDraft } from '@/features/properties/propertySetup';
+import { describeCause, type UploadStage } from '@/features/storage/uploadDiagnostics';
+import { cloudinaryProvider } from '@/features/storage/cloudinaryProvider';
+import {
+  ALLOWED_IMAGE_TYPES,
+  ImageUploadError,
+  MAX_IMAGE_BYTES,
+  providerOf,
+  validateImage,
+  type ImageStorageProvider,
+  type StoredImage,
+} from '@/features/storage/imageStorage';
 
-export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif'];
-const UPLOAD_RETRY_MS = 30_000;
+export const MAX_PHOTO_BYTES = MAX_IMAGE_BYTES;
+const ALLOWED_TYPES = ALLOWED_IMAGE_TYPES;
+
+/** The provider new photos go to. Swap this one line to move uploads to another provider. */
+const imageStorage: ImageStorageProvider = cloudinaryProvider;
 
 // Photos are only viewed inside the app, on phone screens (about 1080 px wide at most), so each
 // one is downscaled to 1280 px on its longest side and re-encoded as JPEG at 0.7. That is
@@ -20,8 +29,8 @@ const UPLOAD_RETRY_MS = 30_000;
 export const PHOTO_MAX_EDGE = 1280;
 export const PHOTO_JPEG_QUALITY = 0.7;
 
-/** A photo that is in Firebase Storage. `path` lets it be deleted later. */
-export type StoredPhoto = { path: string; url: string };
+/** A saved photo reference (see storage/imageStorage.ts). Older ones are { path, url } Firebase files. */
+export type StoredPhoto = StoredImage;
 
 export type PhotoSource = 'gallery' | 'camera';
 export type PickResult = { added: PhotoDraft[]; rejected: string[] };
@@ -114,35 +123,35 @@ export async function pickPhotos(source: PhotoSource, room: number): Promise<Pic
   return { added, rejected };
 }
 
-export class PhotoUploadError extends Error {
-  constructor(readonly code: string | undefined, options?: { cause?: unknown }) {
-    super(`Photo upload failed (${code ?? 'unknown'}).`, options);
-    this.name = 'PhotoUploadError';
-  }
-}
+export { ImageUploadError as PhotoUploadError };
+const PhotoUploadError = ImageUploadError;
 
-/** User-facing text for a failed upload, including the "Storage is not set up" cases. */
+/** User-facing text for a failed upload. */
 export function getPhotoErrorMessage(error: unknown): string {
+  if (error instanceof CloudinaryConfigError) return 'Photo uploads are not configured for this build. Ask the developer to set the Cloudinary settings.';
   const code = error instanceof PhotoUploadError ? error.code : undefined;
   switch (code) {
-    case 'storage/unauthorized':
-      return 'Photo storage is not available for this project yet (Firebase Storage must be enabled and its rules published).';
-    case 'storage/bucket-not-found':
-    case 'storage/project-not-found':
-      return 'Firebase Storage is not set up for this project, so photos cannot be uploaded.';
-    case 'storage/quota-exceeded':
-      return 'The photo storage quota has been reached.';
-    case 'storage/retry-limit-exceeded':
-    case 'storage/canceled':
+    case 'image/unsupported-type':
+      return 'A photo is not a supported image (use JPEG, PNG or WebP).';
+    case 'image/too-large':
+      return 'A photo is larger than 5 MB.';
+    case 'cloudinary/network':
+      return 'A photo could not be uploaded. Check your connection and try again.';
+    case 'cloudinary/timeout':
       return 'The photo upload timed out. Check your connection and try again.';
+    case 'cloudinary/unauthorized':
+    case 'cloudinary/rejected':
+      return 'The photo service rejected the upload. Please try again later.';
+    case 'cloudinary/bad-response':
+      return 'The photo service returned an unexpected response, so the photo was not saved.';
     default:
       return 'A photo could not be uploaded.';
   }
 }
 
 /**
- * Uploads one (already compressed) photo to `properties/{id}/photos/` and reports 0-1 progress.
- * Room photos go to the same folder with a `room_` file prefix, so one storage rule covers both.
+ * Uploads one (already compressed) photo through the image-storage provider and reports 0-1
+ * progress. Room photos use the same property folder with a `room_` marker.
  */
 export async function uploadPropertyPhoto(
   propertyId: string,
@@ -151,36 +160,42 @@ export async function uploadPropertyPhoto(
   onProgress: (fraction: number) => void,
   isRoomPhoto = false,
 ): Promise<StoredPhoto> {
+  void index;
+  let stage: UploadStage = 'local-image-access';
   try {
-    const storage = getFirebaseStorage();
-    storage.maxUploadRetryTime = UPLOAD_RETRY_MS;
-    storage.maxOperationRetryTime = UPLOAD_RETRY_MS;
-    const path = `properties/${propertyId}/photos/${isRoomPhoto ? 'room_' : ''}${Date.now()}_${index}.jpg`;
-    const blob = await (await fetch(photo.uri)).blob();
-    if (blob.size > MAX_PHOTO_BYTES) throw new PhotoUploadError('storage/too-large');
-
-    const fileRef = ref(storage, path);
-    await new Promise<void>((resolve, reject) => {
-      const task = uploadBytesResumable(fileRef, blob, { contentType: 'image/jpeg' });
-      task.on(
-        'state_changed',
-        (s) => onProgress(s.totalBytes > 0 ? s.bytesTransferred / s.totalBytes : 0),
-        reject,
-        () => resolve(),
-      );
+    let size = photo.fileSize;
+    if (size === null) size = (await (await fetch(photo.uri)).blob()).size;
+    stage = 'file-validation';
+    const invalid = validateImage(photo.mimeType, size);
+    if (invalid) throw new PhotoUploadError(invalid, { details: { stage } });
+    return await imageStorage.upload({
+      uri: photo.uri,
+      mimeType: photo.mimeType,
+      fileSize: size,
+      folder: `properties/${propertyId}${isRoomPhoto ? '/rooms' : ''}`,
+      onProgress,
     });
-    return { path, url: await getDownloadURL(fileRef) };
   } catch (error) {
-    if (error instanceof PhotoUploadError) throw error;
+    if (error instanceof PhotoUploadError || error instanceof CloudinaryConfigError) throw error;
+    // Keep what was thrown (name and a sanitized message) and where, instead of a bare error.
     const code = (error as { code?: unknown } | null)?.code;
-    throw new PhotoUploadError(typeof code === 'string' ? code : undefined, { cause: error });
+    throw new PhotoUploadError(typeof code === 'string' ? code : undefined, {
+      cause: error,
+      details: { stage, requestSent: false, ...describeCause(error) },
+    });
   }
 }
 
-/** Best-effort removal of an uploaded file the property no longer references. */
-export async function deleteStoredPhoto(path: string): Promise<void> {
+/**
+ * Best-effort removal of an uploaded file the property no longer references. Only Firebase Storage
+ * files can be deleted from the app. Cloudinary deletion needs the API secret, which must never be
+ * in the app, so those assets stay in the Cloudinary library (orphaned, but unreachable from any
+ * property).
+ */
+export async function deleteStoredPhoto(photo: StoredPhoto): Promise<void> {
+  if (providerOf(photo) !== 'firebase') return;
   try {
-    await deleteObject(ref(getFirebaseStorage(), path));
+    await deleteObject(ref(getFirebaseStorage(), photo.path));
   } catch {
     // An orphaned file is harmless; it cannot be reached from any property.
   }

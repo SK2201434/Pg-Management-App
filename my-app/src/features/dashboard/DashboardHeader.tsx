@@ -129,7 +129,7 @@ const styles = StyleSheet.create({
   stripText: { flexShrink: 1, fontSize: 12, fontWeight: '600', color: BrandColors.textSecondary },
   stripPercent: { fontSize: 11, fontWeight: '800', letterSpacing: 0.6, textTransform: 'uppercase', color: BrandColors.accent },
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(32, 42, 43, 0.45)' },
-  sheet: { maxHeight: '75%', gap: 8, paddingTop: 8, paddingHorizontal: 16, borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: BrandColors.surface },
+  sheet: { maxHeight: '75%', gap: 8, paddingTop: 8, paddingHorizontal: 16, borderTopLeftRadius: 28, borderTopRightRadius: 20, backgroundColor: BrandColors.surface },
   handle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, backgroundColor: BrandColors.border },
   sheetHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 8 },
   sheetTitle: { flex: 1, fontSize: 17, fontWeight: '800', color: BrandColors.textPrimary },

@@ -6,10 +6,11 @@ import { AppButton } from '@/components/app-button';
 import { BrandColors } from '@/constants/theme';
 import { filterAttention, type AttentionFilter } from '@/features/dashboard/dashboardModel';
 import { formatRupees, pluralize } from '@/features/dashboard/dashboardFormat';
+import type { OwnerStayRequest } from '@/features/stayRequests/stayRequestsModel';
 import type { AttentionRow, Metric, RentAmount } from '@/features/dashboard/dashboardTypes';
 import { MetricBoundary } from '@/features/dashboard/MetricBoundary';
 import { initials } from '@/features/properties/tenantsModel';
-import { formatPeriod } from '@/features/rent/rentModel';
+import { formatPeriod, startOfDay } from '@/features/rent/rentModel';
 import { StatusBadge } from '@/features/rent/rentUi';
 
 function Card({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
@@ -28,9 +29,10 @@ export function OutstandingRentCard({ metric, hasCharges, onRecordPayment }: Out
   return (
     <Card style={styles.hero}>
       <View style={styles.spread}>
-        <View style={styles.titleRow}>
+        <View style={[styles.titleRow, styles.heroTitle]}>
           <View style={styles.redDot} />
           <Text style={styles.eyebrow}>Total outstanding rent</Text>
+          <Text style={styles.eyebrowHint}>(overdue + due within 7 days)</Text>
         </View>
         <View style={styles.walletIcon}>
           <MaterialIcons name="account-balance-wallet" size={20} color={BrandColors.textPrimary} />
@@ -43,10 +45,10 @@ export function OutstandingRentCard({ metric, hasCharges, onRecordPayment }: Out
             {r.tenantCount > 0 ? (
               <View style={styles.warn}>
                 <MaterialIcons name="warning" size={14} color={BrandColors.error} />
-                <Text style={styles.warnText}>{pluralize(r.tenantCount, 'tenant')} with unpaid balances</Text>
+                <Text style={styles.warnText}>{pluralize(r.tenantCount, 'tenant')} overdue or due within 7 days</Text>
               </View>
             ) : (
-              <Text style={styles.sub}>{hasCharges ? 'No outstanding payments' : 'No rent charges have been added yet'}</Text>
+              <Text style={styles.sub}>{hasCharges ? 'Nothing overdue or due in the next 7 days' : 'No rent charges have been added yet'}</Text>
             )}
           </>
         )}
@@ -104,7 +106,12 @@ export function DueSoonCard({ metric, style }: { metric: Metric<RentAmount>; sty
 
 type AttentionProps = {
   metric: Metric<AttentionRow[]>;
+  nowMs: number;
   onRecord: (row: AttentionRow) => void;
+  onRemind: (row: AttentionRow) => void;
+  /** Pending requests from people who want to stay; they wait for the owner's decision, so they sit here too. */
+  stayRequests: readonly OwnerStayRequest[];
+  onOpenStayRequests: () => void;
   onOpenTenant: (row: AttentionRow) => void;
 };
 
@@ -114,13 +121,14 @@ const FILTERS: { key: AttentionFilter; label: string }[] = [
   { key: 'all', label: 'All Urgent' },
   { key: 'overdue', label: 'Overdue Only' },
   { key: 'due-today', label: 'Due Today' },
+  { key: 'due-soon', label: 'Due in 7 Days' },
 ];
 
-// Overdue and due-today balances. Reminders and payment verification do not exist in the app, so the
+// Overdue, due-today and soon-due (next 7 days) balances. Reminders and payment verification do not exist in the app, so the
 // only action is Record (the existing payment flow); tapping a row opens the tenant.
-export function NeedsAttention({ metric, onRecord, onOpenTenant }: AttentionProps) {
+export function NeedsAttention({ metric, nowMs, onRecord, onRemind, stayRequests, onOpenStayRequests, onOpenTenant }: AttentionProps) {
   const [filter, setFilter] = useState<AttentionFilter>('all');
-  const count = metric.status === 'ready' ? metric.value.length : null;
+  const count = metric.status === 'ready' ? metric.value.length + stayRequests.length : null;
   return (
     <View style={styles.section}>
       <View style={styles.titleRow}>
@@ -133,12 +141,43 @@ export function NeedsAttention({ metric, onRecord, onOpenTenant }: AttentionProp
           </View>
         ) : null}
       </View>
+      {stayRequests.length > 0 ? (
+        <View style={styles.list}>
+          {stayRequests.map((r, i) => (
+            <Pressable
+              key={`${r.propertyId}_${r.tenantUid}`}
+              accessibilityRole="button"
+              accessibilityLabel={`${r.tenantName} wants to stay at ${r.propertyName}. Review request`}
+              onPress={onOpenStayRequests}
+              style={[styles.row, styles.rowTop, i > 0 && styles.rowDivider]}>
+              <View style={styles.avatar}>
+                <MaterialIcons name="person-add" size={20} color={BrandColors.accent} />
+              </View>
+              <View style={styles.flex}>
+                <Text numberOfLines={1} style={styles.rowName}>
+                  {r.tenantName}
+                </Text>
+                <Text numberOfLines={1} style={styles.small}>
+                  Wants to stay at {r.propertyName}
+                </Text>
+              </View>
+              <View style={styles.rowRight}>
+                <Text style={styles.soonLabel}>Stay request</Text>
+                <View style={styles.remind}>
+                  <Text style={styles.remindText}>Review</Text>
+                </View>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
       <MetricBoundary metric={metric} skeletonHeight={60}>
         {(rows) => {
+          if (rows.length === 0 && stayRequests.length > 0) return null;
           if (rows.length === 0) {
             return (
               <Card>
-                <Text style={styles.sub}>No overdue or due-today payments.</Text>
+                <Text style={styles.sub}>No overdue, due-today or upcoming payments.</Text>
               </Card>
             );
           }
@@ -175,12 +214,22 @@ export function NeedsAttention({ metric, onRecord, onOpenTenant }: AttentionProp
                       </View>
                       <View style={styles.rowRight}>
                         <Text style={styles.rowAmount}>{formatRupees(row.remainingInr)}</Text>
-                        {row.status === 'overdue' ? <StatusBadge status="overdue" daysOverdue={row.daysOverdue} /> : <StatusBadge status="due-today" daysOverdue={0} />}
+                        {row.status === 'overdue' ? (
+                          <StatusBadge status="overdue" daysOverdue={row.daysOverdue} />
+                        ) : row.status === 'due-today' ? (
+                          <StatusBadge status="due-today" daysOverdue={0} />
+                        ) : (
+                          <Text style={styles.soonLabel}>{dueLabel(row.dueMs, nowMs)}</Text>
+                        )}
+                        <Pressable accessibilityRole="button" accessibilityLabel={`Remind ${row.name}`} onPress={() => onRemind(row)} hitSlop={6} style={({ pressed }) => [styles.remind, pressed && styles.remindPressed]}>
+                          <MaterialIcons name="notifications-active" size={12} color={BrandColors.accent} />
+                          <Text style={styles.remindText}>Remind</Text>
+                        </Pressable>
                       </View>
                     </Pressable>
                     <View style={styles.rowFooter}>
                       <Text style={styles.small}>{formatPeriod(row.period)} rent</Text>
-                      <AppButton variant="secondary" size="sm" label="Record" onPress={() => onRecord(row)} accessibilityLabel={`Record payment for ${row.name}`} />
+                      {row.chargeId !== null ? <AppButton variant="secondary" size="sm" label="Record" onPress={() => onRecord(row)} accessibilityLabel={`Record payment for ${row.name}`} /> : null}
                     </View>
                   </View>
                 ))}
@@ -195,7 +244,16 @@ export function NeedsAttention({ metric, onRecord, onOpenTenant }: AttentionProp
   );
 }
 
+const dueLabel = (dueMs: number, nowMs: number): string => {
+  const days = Math.round((dueMs - startOfDay(nowMs)) / 86_400_000);
+  return days <= 0 ? 'Due today' : days === 1 ? 'Due tomorrow' : `Due in ${days} days`;
+};
+
 const styles = StyleSheet.create({
+  remind: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: BrandColors.accent },
+  remindPressed: { opacity: 0.7 },
+  remindText: { fontSize: 11, fontWeight: '800', color: BrandColors.accent },
+  soonLabel: { fontSize: 11, fontWeight: '700', color: '#9E7231' },
   flex: { flex: 1, minWidth: 0 },
   spread: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
@@ -214,6 +272,8 @@ const styles = StyleSheet.create({
   },
   hero: { gap: 12 },
   eyebrow: { flexShrink: 1, fontSize: 10, fontWeight: '800', letterSpacing: 0.8, textTransform: 'uppercase', color: BrandColors.textSecondary },
+  heroTitle: { flex: 1, flexWrap: 'wrap', minWidth: 0 },
+  eyebrowHint: { flexShrink: 1, fontSize: 10, fontWeight: '600', color: BrandColors.textSecondary },
   redDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: BrandColors.error },
   walletIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: BrandColors.canvas },
   heroValue: { fontSize: 34, fontWeight: '800', color: BrandColors.textPrimary },

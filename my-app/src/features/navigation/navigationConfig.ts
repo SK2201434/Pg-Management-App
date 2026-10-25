@@ -25,8 +25,8 @@ const OWNER_NAV: readonly NavItem[] = [
 ];
 
 const TENANT_NAV: readonly NavItem[] = [
-  { routeName: 'index', label: 'Home', icon: 'cottage', subtitle: 'Tenant portal' },
-  { routeName: 'my-stay', label: 'My Stay', icon: 'calendar-today', subtitle: 'Your room and stay' },
+  { routeName: 'index', label: 'Home', icon: 'cottage', subtitle: 'Welcome to your stay' },
+  { routeName: 'my-stay', label: 'My Stay', icon: 'calendar-today', subtitle: 'Your accommodation details' },
   { routeName: 'requests', label: 'Requests', icon: 'room-service', subtitle: 'Service requests' },
   { routeName: 'more', label: 'More', icon: 'grid-view', subtitle: 'Account' },
 ];
@@ -48,8 +48,8 @@ export const PROFILE_HREF_BY_ROLE = {
   [AccountRoles.Tenant]: '/tenant/more',
 } as const;
 
-/** Where the top bar's bell goes. Only the owner has notifications; the tenant's bell stays disabled. */
+/** Where the top bar's bell goes. Each role has its own notifications page. */
 export const NOTIFICATIONS_HREF_BY_ROLE = {
   [AccountRoles.Owner]: '/owner/notifications',
-  [AccountRoles.Tenant]: null,
+  [AccountRoles.Tenant]: '/tenant/notifications',
 } as const;

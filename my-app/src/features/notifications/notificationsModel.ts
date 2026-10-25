@@ -8,9 +8,74 @@
 //
 // Tenant issues and join requests have no data model in the app yet, so they produce nothing.
 import { rentRows, type PropertyData } from '@/features/dashboard/dashboardModel';
+import type { RequestCategory, RequestStatus } from '@/features/requests/requestsModel';
 import { formatInr, PAYMENT_METHODS, startOfDay } from '@/features/rent/rentModel';
 
-export type NotificationKind = 'rent-overdue' | 'rent-due-today' | 'payment-recorded';
+export type NotificationKind = 'rent-overdue' | 'rent-due-today' | 'payment-recorded' | 'stay-request' | 'tenant-request' | 'review';
+
+/** A review of one of the owner's properties, as the owner's live listener sees it. */
+export type OwnerReviewEvent = {
+  /** The reviewer's uid. */
+  id: string;
+  propertyId: string;
+  propertyName: string;
+  tenantName: string;
+  rating: number;
+  comment: string | null;
+  createdMs: number | null;
+};
+
+/** One notification per review, kept for good. The id carries the creation time, so a review deleted and written again is new. */
+export function buildReviewNotifications(reviews: readonly OwnerReviewEvent[], nowMs: number): OwnerNotification[] {
+  return reviews.map((r) => ({
+    id: `review_${r.propertyId}_${r.id}_${r.createdMs ?? 'new'}`,
+    kind: 'review' as const,
+    title: 'New review',
+    body: `${r.tenantName} rated ${r.propertyName} ${r.rating}/5${r.comment ? `: “${r.comment.length > 80 ? `${r.comment.slice(0, 80).trimEnd()}…` : r.comment}”` : '.'}`,
+    propertyId: r.propertyId,
+    propertyName: r.propertyName,
+    tenantUid: r.id,
+    atMs: r.createdMs ?? nowMs,
+  }));
+}
+
+/** A tenant's maintenance request as the owner's live listener sees it. */
+export type OwnerTenantRequest = {
+  id: string;
+  propertyId: string;
+  propertyName: string;
+  tenantUid: string;
+  title: string;
+  category: RequestCategory;
+  description: string;
+  status: RequestStatus;
+  createdMs: number | null;
+};
+
+const REQUEST_TITLE: Record<RequestStatus, string> = { open: 'New tenant request', in_progress: 'Tenant request in progress', resolved: 'Tenant request resolved' };
+
+/**
+ * One notification per request, kept for good: moving the request along changes its title but not its
+ * id, so it stays in the list and keeps its read mark. `names` maps tenant uids to names.
+ */
+export function buildTenantRequestNotifications(
+  requests: readonly OwnerTenantRequest[],
+  names: ReadonlyMap<string, string>,
+  nowMs: number,
+): OwnerNotification[] {
+  return requests
+    .map((r) => ({
+      id: `tenant-request_${r.propertyId}_${r.id}`,
+      kind: 'tenant-request' as const,
+      title: REQUEST_TITLE[r.status],
+      body: `${names.get(r.tenantUid) ?? 'A tenant'} raised “${r.title}”.`,
+      propertyId: r.propertyId,
+      propertyName: r.propertyName,
+      tenantUid: r.tenantUid,
+      requestId: r.id,
+      atMs: r.createdMs ?? nowMs,
+    }));
+}
 
 export type OwnerNotification = {
   /** Stable: `<kind>_<propertyId>_<chargeOrPaymentId>`. Also the id of its read mark. */
@@ -21,6 +86,8 @@ export type OwnerNotification = {
   propertyId: string;
   propertyName: string;
   tenantUid: string;
+  /** For `tenant-request`: the issue it is about. */
+  requestId?: string;
   /** When the event happened (the due date, or the payment date). Dates have no time of day. */
   atMs: number;
 };

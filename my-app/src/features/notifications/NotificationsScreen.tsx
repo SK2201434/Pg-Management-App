@@ -15,6 +15,9 @@ const ICON: Record<NotificationKind, { icon: IconName; color: string; tint: stri
   'rent-overdue': { icon: 'error-outline', color: BrandColors.error, tint: BrandColors.errorTint },
   'rent-due-today': { icon: 'schedule', color: '#9E7231', tint: '#FDF7EB' },
   'payment-recorded': { icon: 'check-circle', color: BrandColors.accent, tint: '#E8F0EE' },
+  'stay-request': { icon: 'person-add', color: BrandColors.accent, tint: '#E8F0EE' },
+  review: { icon: 'star', color: '#D9A441', tint: '#FDF7EB' },
+  'tenant-request': { icon: 'build', color: '#9E7231', tint: '#FDF7EB' },
 };
 
 // Notifications: rent due and overdue, and payments recorded. They are derived from the owner's own rent
@@ -27,6 +30,18 @@ export function NotificationsScreen() {
 
   const open = (item: NotificationItem) => {
     n.markRead([item.id]);
+    if (item.kind === 'stay-request') {
+      router.push('/owner/stay-requests');
+      return;
+    }
+    if (item.kind === 'review') {
+      router.push({ pathname: '/owner/properties/[propertyId]', params: { propertyId: item.propertyId } });
+      return;
+    }
+    if (item.kind === 'tenant-request') {
+      router.push({ pathname: '/owner/issues', params: item.requestId ? { requestId: item.requestId } : {} });
+      return;
+    }
     router.push({ pathname: '/owner/tenants/[tenantId]', params: { tenantId: item.tenantUid, propertyId: item.propertyId } });
   };
 

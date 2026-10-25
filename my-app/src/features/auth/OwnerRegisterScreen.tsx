@@ -189,7 +189,7 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
                 <LoginTextField
                   control={control}
                   name="referral_code"
-                  label="Referral code (optional)"
+                  label="Property ID or referral code (optional)"
                   error={errors.referral_code?.message}
                   autoCapitalize="none"
                   autoCorrect={false}

@@ -15,6 +15,9 @@ export const PAYMENT_METHODS = [
 ] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number]['value'];
 
+/** The modes an owner can choose when recording a payment. Bank and cheque stay in `PAYMENT_METHODS` so older payments still read. */
+export const RECORDABLE_METHODS = PAYMENT_METHODS.filter((m) => m.value === 'upi' || m.value === 'cash');
+
 export const MAX_AMOUNT_INR = 1_000_000;
 
 export type RentCharge = { id: string; tenantUid: string; period: string; amountInr: number; dueMs: number };

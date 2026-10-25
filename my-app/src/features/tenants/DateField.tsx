@@ -69,5 +69,5 @@ const styles = StyleSheet.create({
   value: { fontSize: 15, color: BrandColors.textPrimary },
   error: { fontSize: 12, color: BrandColors.error },
   backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(32, 42, 43, 0.45)' },
-  sheet: { gap: 8, padding: 16, borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: BrandColors.surface },
+  sheet: { gap: 8, padding: 16, borderTopLeftRadius: 28, borderTopRightRadius: 20, backgroundColor: BrandColors.surface },
 });

@@ -79,8 +79,8 @@ export function ProfileGate({ children }: { children: ReactNode }) {
   );
 }
 
-// A referred account becomes `completed` once it has an active profile. Once per session; a failure
-// is retried on the next launch.
+// Retry for a referred owner whose property is ready but whose referral is not yet `completed` (the
+// write is also made right after the property is saved). Once per session.
 function InviteCompletionSync({ uid }: { uid: string }) {
   useEffect(() => {
     completeInviteReferral(uid);

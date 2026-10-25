@@ -1,17 +1,24 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
+import * as Clipboard from 'expo-clipboard';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
-import { useState, type ComponentProps, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useState, type ComponentProps, type ReactElement, type ReactNode } from 'react';
 import { ActivityIndicator, Image, Pressable, RefreshControl, type RefreshControlProps, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/app-button';
 import { BrandColors } from '@/constants/theme';
+import { selectOwner } from '@/features/auth/ownerAuthSelectors';
+import { ensurePropertyJoin } from '@/features/properties/propertyJoin';
+import { useAppSelector } from '@/store/hooks';
 import { TopBarIconButton } from '@/features/navigation/AppTopBar';
 import { propertyBadge } from '@/features/properties/propertyFilter';
 import { occupancyPercent, parsePropertyId, sortRooms, summarizeRooms } from '@/features/properties/propertyDetailsModel';
+import { PhotoCarousel } from '@/features/discovery/PhotoCarousel';
 import { PropertyActionsSheet, type PropertyAction } from '@/features/properties/PropertyActionsSheet';
 import { getPropertyErrorMessage, PropertyRequestError } from '@/features/properties/propertyService';
 import type { PropertyDetail, PropertyRoom } from '@/features/properties/propertyTypes';
 import { formatInr, sharingLabel } from '@/features/properties/propertySetup';
+import { PropertyStayRequestsSection } from '@/features/stayRequests/PropertyStayRequestsSection';
+import { ReviewsSection } from '@/features/reviews/ReviewsSection';
 import { useConfirm } from '@/components/confirm-dialog';
 import { buildLedger, currentPeriod, formatPeriod, ledgerSummary } from '@/features/rent/rentModel';
 import { usePayments, useRentCharges } from '@/features/rent/useRentQueries';
@@ -25,6 +32,8 @@ const openRentLedger = (propertyId: string) =>
   router.push({ pathname: '/owner/properties/[propertyId]/rent-ledger', params: { propertyId } });
 const openTenants = (propertyId: string) =>
   router.push({ pathname: '/owner/properties/[propertyId]/tenants', params: { propertyId } });
+const openRules = (propertyId: string) =>
+  router.push({ pathname: '/owner/properties/[propertyId]/rules', params: { propertyId } });
 const openRoomsBeds = (propertyId: string) =>
   router.push({ pathname: '/owner/properties/[propertyId]/rooms-beds', params: { propertyId } });
 
@@ -132,7 +141,14 @@ export function PropertyDetailsScreen() {
     rooms.refetch();
   };
   const actions: PropertyAction[] = [
-    { label: 'Edit Property Information', icon: 'edit', unavailableReason: 'Editing is not available yet.' },
+    {
+      label: 'Edit Property Information',
+      icon: 'edit',
+      onPress: () => {
+        setMenuOpen(false);
+        router.push({ pathname: '/owner/properties/[propertyId]/edit', params: { propertyId: data.id } });
+      },
+    },
     {
       label: data.status === 'active' ? 'Deactivate Property' : 'Activate Property',
       icon: 'power-settings-new',
@@ -155,11 +171,14 @@ export function PropertyDetailsScreen() {
           <Text style={styles.muted}>{statusMessage}</Text>
         </Pressable>
       ) : null}
+      {data.photoUrls.length > 0 ? <PhotoCarousel urls={data.photoUrls} /> : null}
       <SummaryCard property={data} roomsData={rooms.data} />
       <OccupancyCard roomsState={rooms} />
-      <ManagementSuite onRoomsBeds={() => openRoomsBeds(data.id)} onTenants={() => openTenants(data.id)} onRentLedger={() => openRentLedger(data.id)} onSettings={() => setMenuOpen(true)} />
+      <PropertyStayRequestsSection propertyId={data.id} />
+      <ManagementSuite onRoomsBeds={() => openRoomsBeds(data.id)} onTenants={() => openTenants(data.id)} onRentLedger={() => openRentLedger(data.id)} onRules={() => openRules(data.id)} onSettings={() => setMenuOpen(true)} />
       <RentOverview propertyId={data.id} onOpen={() => openRentLedger(data.id)} />
       <RoomsPreview roomsState={rooms} onViewAll={() => openRoomsBeds(data.id)} />
+      <ReviewsSection propertyId={data.id} reviewerName={null} readOnly />
       {dialog}
       <PropertyActionsSheet
         visible={menuOpen}
@@ -226,8 +245,38 @@ function SummaryCard({ property, roomsData }: { property: PropertyDetail; roomsD
           ) : null}
         </View>
       </View>
+      <PropertyIdRow propertyId={property.id} />
       <Text style={styles.footnote}>Editing is not available yet.</Text>
     </Card>
+  );
+}
+
+// The permanent Property ID: tenants enter it when creating their account to send a stay request. It is
+// the property's own id; the lookup record that lets a tenant use it is added here for older properties.
+function PropertyIdRow({ propertyId }: { propertyId: string }) {
+  const ownerUid = useAppSelector(selectOwner)?.uid;
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (ownerUid) ensurePropertyJoin(propertyId, ownerUid).catch(() => undefined);
+  }, [propertyId, ownerUid]);
+  const copy = async () => {
+    try {
+      setCopied(await Clipboard.setStringAsync(propertyId));
+    } catch {
+      setCopied(false);
+    }
+  };
+  return (
+    <View style={styles.idRow}>
+      <View style={styles.flex}>
+        <Text style={styles.idLabel}>Property ID</Text>
+        <Text selectable style={styles.idValue}>{propertyId}</Text>
+        <Text style={styles.footnote}>Share it with tenants: they enter it when creating their account.</Text>
+      </View>
+      <Pressable accessibilityRole="button" accessibilityLabel="Copy Property ID" onPress={copy} hitSlop={8}>
+        <MaterialIcons name={copied ? 'check' : 'content-copy'} size={20} color={BrandColors.accent} />
+      </Pressable>
+    </View>
   );
 }
 
@@ -285,7 +334,7 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ManagementSuite({ onRoomsBeds, onTenants, onRentLedger, onSettings }: { onRoomsBeds: () => void; onTenants: () => void; onRentLedger: () => void; onSettings: () => void }) {
+function ManagementSuite({ onRoomsBeds, onTenants, onRentLedger, onRules, onSettings }: { onRoomsBeds: () => void; onTenants: () => void; onRentLedger: () => void; onRules: () => void; onSettings: () => void }) {
   return (
     <View style={styles.suite}>
       <SectionLabel>Management suite</SectionLabel>
@@ -293,7 +342,10 @@ function ManagementSuite({ onRoomsBeds, onTenants, onRentLedger, onSettings }: {
         <SuiteCard icon="meeting-room" title="Rooms & Beds" onPress={onRoomsBeds} />
         <SuiteCard icon="group" title="Tenants" onPress={onTenants} />
         <SuiteCard icon="receipt-long" title="Rent Ledger" onPress={onRentLedger} />
+        <SuiteCard icon="gavel" title="Rules & Regulations" onPress={onRules} />
         <SuiteCard icon="settings" title="Settings" onPress={onSettings} />
+        {/* Fills the last half of the row so an odd card keeps the same size as the others. */}
+        <View style={styles.suiteSpacer} />
       </View>
     </View>
   );
@@ -465,6 +517,9 @@ const styles = StyleSheet.create({
   statusMessage: { padding: 12, borderRadius: 12, backgroundColor: '#E8F0EE' },
   viewAll: { fontSize: 13, fontWeight: '700', color: BrandColors.accent },
   muted: { fontSize: 13, color: BrandColors.textSecondary },
+  idRow: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12, backgroundColor: BrandColors.canvas },
+  idLabel: { fontSize: 11, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', color: BrandColors.textSecondary },
+  idValue: { marginVertical: 2, fontSize: 14, fontWeight: '700', color: BrandColors.textPrimary },
   footnote: { fontSize: 12, color: BrandColors.textSecondary },
   center: { alignItems: 'center', gap: 8, paddingVertical: 40 },
   badge: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999 },
@@ -501,6 +556,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: BrandColors.border,
   },
+  suiteSpacer: { flexGrow: 1, flexBasis: '45%' },
   suiteIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EEF3F1' },
   suiteTitle: { fontSize: 14, fontWeight: '700', color: BrandColors.textPrimary },
   soon: { fontSize: 11, color: BrandColors.textSecondary },

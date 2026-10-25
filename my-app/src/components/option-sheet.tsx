@@ -59,8 +59,8 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingTop: 8,
     paddingHorizontal: 16,
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     backgroundColor: BrandColors.surface,
   },
   handle: {

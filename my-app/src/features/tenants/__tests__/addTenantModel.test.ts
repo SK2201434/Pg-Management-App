@@ -1,4 +1,4 @@
-import { isEditDirty, normalizePhone, parseDeposit, toNewResident, toResidentEdit, validateAddTenant, validateEditTenant, type AddTenantForm, type EditTenantForm } from '@/features/tenants/addTenantModel';
+import { isEditDirty, normalizePhone, parseDeposit, toNewResident, toResidentEdit, validateAddTenant, validateEditTenant, type AddTenantForm, type EditTenantForm, prefillFromRequest } from '@/features/tenants/addTenantModel';
 
 const NOW = new Date(2026, 9, 20, 12).getTime();
 const valid: AddTenantForm = {
@@ -77,5 +77,13 @@ describe('edit tenant', () => {
     expect(isEditDirty(saved, saved)).toBe(false);
     expect(isEditDirty({ ...saved, phone: '98765 43210', name: ' Rahul Sharma ' }, saved)).toBe(false);
     expect(isEditDirty({ ...saved, address: 'Pune' }, saved)).toBe(true);
+  });
+});
+
+describe('prefillFromRequest', () => {
+  it('prefills the name and the last 10 digits of the phone', () => {
+    expect(prefillFromRequest(' Asha Rao ', '+91 98765 43210')).toEqual({ name: 'Asha Rao', phone: '9876543210' });
+    expect(prefillFromRequest('Asha', '12345')).toEqual({ name: 'Asha', phone: '' });
+    expect(prefillFromRequest(null, null)).toEqual({ name: '', phone: '' });
   });
 });

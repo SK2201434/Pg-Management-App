@@ -5,6 +5,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 
 import { AppButton } from '@/components/app-button';
 import { useConfirm } from '@/components/confirm-dialog';
+import { APP_TAGLINE } from '@/constants/brand';
 import { BrandColors } from '@/constants/theme';
 import { getAuthErrorMessage } from '@/features/auth/authErrorMessage';
 import { HostellLogo } from '@/features/auth/HostellLogo';
@@ -139,6 +140,7 @@ export function ProfileTab() {
           onPress={() => router.navigate('/owner/properties')}
           trailing={<Text style={styles.link}>View</Text>}
         />
+        <Row icon="card-giftcard" label="Referral credits" value={`${data.credits} ${data.credits === 1 ? 'credit' : 'credits'}`} />
         <Row icon="calendar-today" label="Member since" value={since ?? 'Unavailable'} last />
       </Section>
 
@@ -151,6 +153,11 @@ export function ProfileTab() {
 
       <View style={styles.footer}>
         <HostellLogo />
+        <View style={styles.taglineRow}>
+          <View style={styles.taglineLine} />
+          <Text style={styles.tagline}>{APP_TAGLINE}</Text>
+          <View style={styles.taglineLine} />
+        </View>
       </View>
 
       {editing ? (
@@ -233,5 +240,8 @@ const styles = StyleSheet.create({
   rowLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.6, textTransform: 'uppercase', color: BrandColors.textSecondary },
   rowValue: { marginTop: 2, fontSize: 14, fontWeight: '600', color: BrandColors.textPrimary },
   link: { fontSize: 13, fontWeight: '700', color: BrandColors.accent },
-  footer: { alignItems: 'center', paddingVertical: 8 },
+  footer: { alignItems: 'center', paddingVertical: 8, gap: 8 },
+  taglineRow: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8 },
+  taglineLine: { width: 40, height: 1, backgroundColor: BrandColors.border },
+  tagline: { fontSize: 12, fontWeight: '600', letterSpacing: 2, textTransform: 'uppercase', color: BrandColors.textSecondary },
 });

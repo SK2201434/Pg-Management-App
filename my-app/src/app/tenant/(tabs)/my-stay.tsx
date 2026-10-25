@@ -1,5 +1,5 @@
-import { PlaceholderScreen } from '@/features/navigation/PlaceholderScreen';
+import { TenantStayScreen } from '@/features/tenantHome/TenantStayScreen';
 
-export default function TenantMyStayScreen() {
-  return <PlaceholderScreen title="My Stay" />;
+export default function TenantMyStayRoute() {
+  return <TenantStayScreen />;
 }

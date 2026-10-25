@@ -1,14 +1,34 @@
+import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 
-import { Card, Field, formStyles } from '@/features/properties/addProperty/formParts';
+import { BrandColors } from '@/constants/theme';
+import { Card, Chip, Field, formStyles } from '@/features/properties/addProperty/formParts';
 import type { StepProps } from '@/features/properties/addProperty/stepTypes';
 import { getCurrentAddress, getCurrentAddressMessage } from '@/features/properties/currentAddress';
-import { LIMITS } from '@/features/properties/propertySetup';
+import { parseGeo, splitCoordinatePair } from '@/features/properties/propertyLocation';
+import { AMENITIES, LIMITS } from '@/features/properties/propertySetup';
 
-export function DetailsStep({ form, update, errors, showErrors }: StepProps) {
+export function DetailsStep({ form, update, errors, showErrors, locationError }: StepProps) {
   const [locating, setLocating] = useState(false);
   const [locationNotice, setLocationNotice] = useState<string | null>(null);
+  // The coordinate fields hold text while being typed; the form gets them only once both are valid.
+  const [latText, setLatText] = useState(form.geo ? String(form.geo.latitude) : '');
+  const [lngText, setLngText] = useState(form.geo ? String(form.geo.longitude) : '');
+  const [showTip, setShowTip] = useState(false);
+  const parsed = parseGeo(latText, lngText);
+
+  const setCoordinates = (lat: string, lng: string) => {
+    setLatText(lat);
+    setLngText(lng);
+    update({ geo: parseGeo(lat, lng).geo });
+  };
+  const changeLat = (text: string) => {
+    // A "lat, lng" pair copied from Google Maps fills both fields.
+    const pair = splitCoordinatePair(text);
+    if (pair) setCoordinates(pair[0], pair[1]);
+    else setCoordinates(text, lngText);
+  };
 
   // Fills address, city, state and postal code from the phone's location. Everything stays
   // editable; a part the geocoder could not provide is left as the owner had it.
@@ -22,9 +42,10 @@ export function DetailsStep({ form, update, errors, showErrors }: StepProps) {
         city: found.city || form.city,
         state: found.state || form.state,
         postalCode: found.postalCode || form.postalCode,
-        // Kept silently; the owner never sees or edits coordinates.
         geo: found.coordinates,
       });
+      setLatText(String(found.coordinates.latitude));
+      setLngText(String(found.coordinates.longitude));
       const missing = [
         !found.location && 'address',
         !found.city && 'city',
@@ -95,6 +116,35 @@ export function DetailsStep({ form, update, errors, showErrors }: StepProps) {
           maxLength={LIMITS.postalCode}
           autoCapitalize="characters"
         />
+        {locationError ? (
+          <View style={styles.locationError} accessibilityRole="alert" accessibilityLiveRegion="polite">
+            <Text style={styles.locationErrorText}>{locationError}</Text>
+          </View>
+        ) : null}
+        <View style={styles.coordsHeader}>
+          <Text style={styles.coordsTitle}>Location coordinates <Text style={styles.optional}>(optional)</Text></Text>
+          <Pressable accessibilityRole="button" accessibilityLabel="How to get coordinates from Google Maps" hitSlop={10} onPress={() => setShowTip((v) => !v)}>
+            <MaterialIcons name="info-outline" size={20} color={BrandColors.accent} />
+          </Pressable>
+        </View>
+        {showTip ? (
+          <View style={styles.tip}>
+            <Text style={styles.tipText}>
+              In Google Maps, press and hold the exact spot of your property. A pin drops and the coordinates (like 12.971599, 77.594566) appear at the top or bottom. Tap them to copy, then paste into Latitude — both fields fill in.
+            </Text>
+            <Pressable accessibilityRole="link" onPress={() => void Linking.openURL('https://www.google.com/maps')}>
+              <Text style={styles.tipLink}>Open Google Maps</Text>
+            </Pressable>
+          </View>
+        ) : null}
+        <View style={formStyles.row}>
+          <View style={{ flex: 1 }}>
+            <Field label="Latitude" value={latText} onChangeText={changeLat} placeholder="e.g. 12.971599" keyboardType="numbers-and-punctuation" autoCorrect={false} error={parsed.latError ?? (locationError ? ' ' : undefined)} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Field label="Longitude" value={lngText} onChangeText={(t) => setCoordinates(latText, t)} placeholder="e.g. 77.594566" keyboardType="numbers-and-punctuation" autoCorrect={false} error={parsed.lngError ?? (locationError ? ' ' : undefined)} />
+          </View>
+        </View>
         <Field
           label="Description"
           optional
@@ -104,6 +154,18 @@ export function DetailsStep({ form, update, errors, showErrors }: StepProps) {
           maxLength={LIMITS.description}
           multiline
         />
+      </Card>
+      <Card title="Amenities">
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }}>
+          {AMENITIES.map((a) => (
+            <Chip
+              key={a.key}
+              label={a.label}
+              selected={form.amenities.includes(a.key)}
+              onPress={() => update({ amenities: form.amenities.includes(a.key) ? form.amenities.filter((k) => k !== a.key) : [...form.amenities, a.key] })}
+            />
+          ))}
+        </View>
       </Card>
       <Card title="Contact">
         <Field
@@ -128,3 +190,14 @@ export function DetailsStep({ form, update, errors, showErrors }: StepProps) {
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  locationError: { padding: 12, borderRadius: 10, borderWidth: 1, borderColor: BrandColors.error },
+  coordsHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  coordsTitle: { fontSize: 14, fontWeight: '600', color: BrandColors.textPrimary },
+  optional: { fontWeight: '400', color: BrandColors.textSecondary },
+  tip: { gap: 8, padding: 12, borderRadius: 10, backgroundColor: BrandColors.background },
+  tipText: { fontSize: 13, color: BrandColors.textSecondary },
+  tipLink: { fontSize: 13, fontWeight: '600', color: BrandColors.accent },
+  locationErrorText: { fontSize: 13, color: BrandColors.error },
+});

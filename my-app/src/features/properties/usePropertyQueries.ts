@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react';
+import { backfillListings, syncListing } from '@/features/discovery/discoveryService';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { selectOwner } from '@/features/auth/ownerAuthSelectors';
@@ -12,7 +14,9 @@ import {
   setPropertyStatus,
 } from '@/features/properties/propertyService';
 import { hasRoomNumber } from '@/features/properties/propertyDetailsModel';
-import { buildRoomWrite, type RoomDraft } from '@/features/properties/propertySetup';
+import { buildRoomWrite, type PropertyForm, type RoomDraft } from '@/features/properties/propertySetup';
+import type { PropertyEditData } from '@/features/properties/propertyEdit';
+import { fetchPropertyForEdit, savePropertyEdit, type EditProgress, type EditResult } from '@/features/properties/propertyEditService';
 import { useAppSelector } from '@/store/hooks';
 
 export const ownerPropertiesQueryKey = (ownerUid: string | undefined) =>
@@ -105,7 +109,11 @@ export function useAddRoom(propertyId: string) {
       if (!alreadyWritten && hasRoomNumber(current, draft.roomNumber)) throw new DuplicateRoomError();
       await createRoomWithBeds(propertyId, ownerUid as string, buildRoomWrite(draft, includeFloor));
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ownerPropertiesQueryKey(ownerUid) }),
+    onSuccess: () => {
+      // New beds change what the public listing shows.
+      if (ownerUid) void syncListing(propertyId, ownerUid);
+      return queryClient.invalidateQueries({ queryKey: ownerPropertiesQueryKey(ownerUid) });
+    },
   });
 }
 
@@ -115,6 +123,54 @@ export function useSetPropertyStatus() {
   const queryClient = useQueryClient();
   return useMutation<void, Error, { propertyId: string; status: 'active' | 'inactive' }>({
     mutationFn: ({ propertyId, status }) => setPropertyStatus(propertyId, status),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ownerPropertiesQueryKey(ownerUid) }),
+    onSuccess: (_, { propertyId }) => {
+      // A switched-off property leaves discovery; a switched-on one returns (best effort).
+      if (ownerUid) void syncListing(propertyId, ownerUid);
+      return queryClient.invalidateQueries({ queryKey: ownerPropertiesQueryKey(ownerUid) });
+    },
   });
+}
+
+/**
+ * One-time catch-up: lists the owner's existing ready properties that have no public listing. It
+ * runs once per session after the property list loads, and never blocks or fails the screen.
+ */
+export function useListingBackfill() {
+  const ownerUid = useAppSelector(selectOwner)?.uid;
+  const { data } = useOwnerProperties();
+  const done = useRef(false);
+  useEffect(() => {
+    if (done.current || !ownerUid || !data) return;
+    done.current = true;
+    void backfillListings(ownerUid, data.map((p) => p.id));
+  }, [ownerUid, data]);
+}
+
+/** One of the owner's own properties, loaded for editing; a property of another owner is refused. */
+export function usePropertyForEdit(propertyId: string | null) {
+  const ownerUid = useAppSelector(selectOwner)?.uid;
+  return useQuery({
+    queryKey: [...ownerPropertiesQueryKey(ownerUid), 'edit', propertyId] as const,
+    queryFn: () => fetchPropertyForEdit(propertyId as string, ownerUid as string),
+    enabled: ownerUid !== undefined && propertyId !== null,
+    retry: false,
+    // The form is edited locally, so it is not refreshed under the owner's hands.
+    refetchOnWindowFocus: false,
+    staleTime: Infinity,
+    gcTime: 0,
+  });
+}
+
+/** Saves an edit, then refreshes the list, the details and the edit data. */
+export function useSavePropertyEdit(propertyId: string) {
+  const ownerUid = useAppSelector(selectOwner)?.uid;
+  const queryClient = useQueryClient();
+  const [progress, setProgress] = useState<EditProgress | null>(null);
+  const mutation = useMutation<EditResult, Error, { form: PropertyForm; original: PropertyEditData }>({
+    mutationFn: ({ form, original }) =>
+      savePropertyEdit({ propertyId, ownerUid: ownerUid as string, form, original, report: setProgress }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ownerPropertiesQueryKey(ownerUid) }),
+    onSettled: () => setProgress(null),
+  });
+  return { ...mutation, progress };
 }

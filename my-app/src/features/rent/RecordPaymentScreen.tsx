@@ -19,7 +19,7 @@ import {
   formatInr,
   formatPeriod,
   halfOf,
-  PAYMENT_METHODS,
+  RECORDABLE_METHODS,
   parseAmount,
   parseDateInput,
   startOfDay,
@@ -232,7 +232,7 @@ function PaymentForm({ propertyId, row, onChange }: { propertyId: string; row: L
         <Text style={styles.heading}>Payment details</Text>
         <Text style={styles.label}>Payment mode</Text>
         <View style={styles.methods}>
-          {PAYMENT_METHODS.map((m) => (
+          {RECORDABLE_METHODS.map((m) => (
             <Pressable
               key={m.value}
               accessibilityRole="radio"

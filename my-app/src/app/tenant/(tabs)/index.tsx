@@ -1,5 +1,5 @@
-import { PlaceholderScreen } from '@/features/navigation/PlaceholderScreen';
+import { TenantHomeScreen } from '@/features/tenantHome/TenantHomeScreen';
 
-export default function TenantHomeScreen() {
-  return <PlaceholderScreen title="Home" />;
+export default function TenantHomeRoute() {
+  return <TenantHomeScreen />;
 }

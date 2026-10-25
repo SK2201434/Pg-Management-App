@@ -5,8 +5,9 @@
 // way the Property, Tenants and Rent Ledger screens derive it, so the numbers agree across screens.
 import { occupancyPercent, summarizeRooms } from '@/features/properties/propertyDetailsModel';
 import type { PropertyRoom, PropertyTenant } from '@/features/properties/propertyTypes';
+import { nextDueMs, periodOf } from '@/features/rent/reminderModel';
 import { buildLedger, startOfDay, type LedgerRow, type RentCharge, type RentPayment } from '@/features/rent/rentModel';
-import type { AttentionRow, OccupancySummary, RentAmount } from '@/features/dashboard/dashboardTypes';
+import type { AttentionRow, OccupancySummary, RentAmount, UpcomingRow } from '@/features/dashboard/dashboardTypes';
 
 /** One owned property with whatever has been loaded for it (`null` = not loaded or failed). */
 export type PropertyData = {
@@ -64,6 +65,62 @@ export function outstandingRent(rows: readonly DashboardRow[]): RentAmount {
   return { amountInr: owing.reduce((s, r) => s + r.row.remainingInr, 0), tenantCount: distinctTenants(owing) };
 }
 
+/**
+ * Who owes rent in the next 7 days, soonest due first: unpaid recorded charges due in the window, plus
+ * the coming month of each active tenant the owner added (their bed's rent, due on their billing day)
+ * when no charge for that month has been recorded yet. This is the same due date the Remind button uses.
+ */
+export function dueSoonRows(list: readonly PropertyData[], rows: readonly DashboardRow[], nowMs: number, days = 7): UpcomingRow[] {
+  const from = startOfDay(nowMs);
+  const to = from + days * DAY_MS;
+  const out: UpcomingRow[] = rows
+    .filter((r) => {
+      const d = startOfDay(r.row.charge.dueMs);
+      return r.row.remainingInr > 0 && d >= from && d <= to;
+    })
+    .map(
+      (r): UpcomingRow => ({
+        key: `${r.propertyId}:${r.row.charge.id}`,
+        propertyId: r.propertyId,
+        propertyName: r.propertyName,
+        tenantUid: r.row.charge.tenantUid,
+        name: r.row.tenantName,
+        placement: r.placement,
+        remainingInr: r.row.remainingInr,
+        dueMs: startOfDay(r.row.charge.dueMs),
+        period: r.row.charge.period,
+      }),
+    );
+
+  for (const p of list) {
+    for (const t of p.tenants ?? []) {
+      if (t.status !== 'active' || t.source !== 'added' || t.joinedAtMs === null || t.rentInr === null) continue;
+      const dueMs = nextDueMs(t.joinedAtMs, nowMs);
+      if (dueMs > to) continue;
+      const period = periodOf(dueMs);
+      if ((p.charges ?? []).some((c) => c.tenantUid === t.tenantUid && c.period === period)) continue;
+      out.push({
+        key: `${p.id}:${t.tenantUid}:${period}-scheduled`,
+        propertyId: p.id,
+        propertyName: p.name,
+        tenantUid: t.tenantUid,
+        name: t.name,
+        placement: t.roomNumber ? `Room ${t.roomNumber} · ${t.bedLabel ?? 'Bed'}` : null,
+        remainingInr: t.rentInr,
+        dueMs: startOfDay(dueMs),
+        period,
+      });
+    }
+  }
+  return out.sort((a, b) => a.dueMs - b.dueMs || a.name.localeCompare(b.name));
+}
+
+/** The total owed across rows, and how many distinct tenants owe it. */
+export const summarizeDueSoon = (rows: readonly Pick<UpcomingRow, 'propertyId' | 'tenantUid' | 'remainingInr'>[]): RentAmount => ({
+  amountInr: rows.reduce((s, r) => s + r.remainingInr, 0),
+  tenantCount: new Set(rows.map((r) => `${r.propertyId}:${r.tenantUid}`)).size,
+});
+
 /** Unpaid balance of charges due from today through the next 7 days (overdue ones are not included). */
 export function dueWithinDays(rows: readonly DashboardRow[], nowMs: number, days = 7): RentAmount {
   const from = startOfDay(nowMs);
@@ -87,13 +144,13 @@ export function collectedThisMonth(list: readonly PropertyData[], nowMs: number)
 }
 
 /**
- * Overdue and due-today balances: overdue first (longest first), then due today. A charge that is
- * due today and part-paid still counts as due today.
+ * What needs the owner's eye: overdue balances (longest first), then due today, then rent coming due in
+ * the next 7 days (soonest first). A charge that is due today and part-paid still counts as due today.
  */
-export function attentionRows(rows: readonly DashboardRow[], nowMs: number): AttentionRow[] {
+export function attentionRows(list: readonly PropertyData[], rows: readonly DashboardRow[], nowMs: number): AttentionRow[] {
   const today = startOfDay(nowMs);
   const dueToday = (r: DashboardRow) => startOfDay(r.row.charge.dueMs) === today;
-  return rows
+  const urgent = rows
     .filter((r) => r.row.remainingInr > 0 && (r.row.status === 'overdue' || dueToday(r)))
     .map(
       (r): AttentionRow => ({
@@ -107,13 +164,35 @@ export function attentionRows(rows: readonly DashboardRow[], nowMs: number): Att
         remainingInr: r.row.remainingInr,
         status: r.row.status === 'overdue' ? 'overdue' : 'due-today',
         daysOverdue: r.row.daysOverdue,
+        dueMs: startOfDay(r.row.charge.dueMs),
         period: r.row.charge.period,
       }),
     )
     .sort((a, b) => (a.status === b.status ? b.daysOverdue - a.daysOverdue || a.name.localeCompare(b.name) : a.status === 'overdue' ? -1 : 1));
+
+  const seen = new Set(urgent.map((r) => r.key));
+  const soon = dueSoonRows(list, rows, nowMs)
+    .filter((u) => !seen.has(u.key))
+    .map(
+      (u): AttentionRow => ({
+        key: u.key,
+        propertyId: u.propertyId,
+        propertyName: u.propertyName,
+        tenantUid: u.tenantUid,
+        chargeId: u.key.endsWith('-scheduled') ? null : u.key.slice(u.propertyId.length + 1),
+        name: u.name,
+        placement: u.placement,
+        remainingInr: u.remainingInr,
+        status: 'due-soon',
+        daysOverdue: 0,
+        dueMs: u.dueMs,
+        period: u.period,
+      }),
+    );
+  return [...urgent, ...soon];
 }
 
-export type AttentionFilter = 'all' | 'overdue' | 'due-today';
+export type AttentionFilter = 'all' | 'overdue' | 'due-today' | 'due-soon';
 
 export const filterAttention = (rows: readonly AttentionRow[], filter: AttentionFilter): AttentionRow[] =>
   filter === 'all' ? [...rows] : rows.filter((r) => r.status === filter);

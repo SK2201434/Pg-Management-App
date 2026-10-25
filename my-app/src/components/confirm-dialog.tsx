@@ -132,7 +132,7 @@ const styles = StyleSheet.create({
     maxWidth: 380,
     gap: 8,
     padding: 20,
-    borderRadius: 20,
+    borderRadius: 24,
     backgroundColor: BrandColors.surface,
     elevation: 8,
   },

@@ -1,9 +1,12 @@
 import type { Href } from 'expo-router';
 import Tabs from 'expo-router/js-tabs';
 
-import type { AccountRole } from '@/constants/account';
+import { AccountRoles, type AccountRole } from '@/constants/account';
 import { AppTopBar } from '@/features/navigation/AppTopBar';
 import { BottomNavigation } from '@/features/navigation/BottomNavigation';
+import { TenantSearchButton } from '@/features/discovery/TenantSearch';
+import { TenantTopBar } from '@/features/discovery/TenantTopBar';
+import { TenantNotificationBell } from '@/features/tenantNotifications/TenantNotificationBell';
 import { MainTopBarActions } from '@/features/navigation/MainTopBarActions';
 import { NAV_BY_ROLE, NOTIFICATIONS_HREF_BY_ROLE, PROFILE_HREF_BY_ROLE } from '@/features/navigation/navigationConfig';
 
@@ -11,6 +14,7 @@ import { NAV_BY_ROLE, NOTIFICATIONS_HREF_BY_ROLE, PROFILE_HREF_BY_ROLE } from '@
 // bottom navigation. The role guard lives in RoleStackLayout, which wraps this group.
 export function RoleTabsLayout({ role }: { role: AccountRole }) {
   const items = NAV_BY_ROLE[role];
+  const TopBar = role === AccountRoles.Tenant ? TenantTopBar : AppTopBar;
   const profileHref: Href = PROFILE_HREF_BY_ROLE[role];
   return (
     <Tabs
@@ -18,11 +22,11 @@ export function RoleTabsLayout({ role }: { role: AccountRole }) {
         header: ({ route }) => {
           const item = items.find((i) => i.routeName === route.name);
           return (
-            <AppTopBar
+            <TopBar
               title={item?.title ?? item?.label ?? ''}
               subtitle={item?.subtitle}
               leadingIcon={item?.icon}
-              actions={<MainTopBarActions profileHref={profileHref} notificationsHref={NOTIFICATIONS_HREF_BY_ROLE[role]} />}
+              actions={<MainTopBarActions profileHref={profileHref} notificationsHref={NOTIFICATIONS_HREF_BY_ROLE[role]} bell={role === AccountRoles.Tenant ? <><TenantSearchButton /><TenantNotificationBell href={NOTIFICATIONS_HREF_BY_ROLE[role]} /></> : undefined} />}
             />
           );
         },

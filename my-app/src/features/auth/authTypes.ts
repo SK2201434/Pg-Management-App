@@ -62,6 +62,8 @@ export type UserProfile = {
   displayName: string;
   email: string;
   phone?: string;
+  /** Owner referral credits. Absent means 0; only the referral completion batch can raise it. */
+  credits?: number;
   createdAt: Timestamp;
   updatedAt: Timestamp;
 };

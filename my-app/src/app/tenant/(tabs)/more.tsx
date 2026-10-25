@@ -1,5 +1,5 @@
-import { PlaceholderScreen } from '@/features/navigation/PlaceholderScreen';
+import { TenantMoreScreen } from '@/features/tenantMore/TenantMoreScreen';
 
-export default function TenantMoreScreen() {
-  return <PlaceholderScreen title="More" showSignOut />;
+export default function TenantMoreRoute() {
+  return <TenantMoreScreen />;
 }

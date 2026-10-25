@@ -57,7 +57,7 @@ export function EditProfileSheet({ initial, email, busy, submitError, onSubmit, 
 
 const styles = StyleSheet.create({
   root: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(32, 42, 43, 0.45)' },
-  sheet: { maxHeight: '90%', gap: 8, paddingTop: 8, paddingHorizontal: 16, borderTopLeftRadius: 20, borderTopRightRadius: 20, backgroundColor: BrandColors.surface },
+  sheet: { maxHeight: '90%', gap: 8, paddingTop: 8, paddingHorizontal: 16, borderTopLeftRadius: 28, borderTopRightRadius: 20, backgroundColor: BrandColors.surface },
   handle: { alignSelf: 'center', width: 40, height: 4, borderRadius: 2, marginBottom: 4, backgroundColor: BrandColors.border },
   title: { fontSize: 18, fontWeight: '800', color: BrandColors.textPrimary },
   form: { gap: 14, paddingVertical: 8 },

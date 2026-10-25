@@ -26,11 +26,13 @@ export type AppTopBarProps = {
   propertyName?: string | null;
   /** Right-side actions. */
   actions?: ReactNode;
+  /** An expanded search field that takes the place of the title block while it is open. */
+  searchField?: ReactNode;
 };
 
 // The shared HOSTELL top bar. Main tab pages pass `leadingIcon`; nested pages pass `onBack`.
 // It owns the top safe-area inset, so screens below it must not add one.
-export function AppTopBar({ title, subtitle, leadingIcon, onBack, propertyName, actions }: AppTopBarProps) {
+export function AppTopBar({ title, subtitle, leadingIcon, onBack, propertyName, actions, searchField }: AppTopBarProps) {
   const insets = useSafeAreaInsets();
   const secondLine = onBack ? propertyName?.trim() || subtitle : subtitle;
   const [profileHighlighted, setProfileHighlighted] = useState(false);
@@ -64,6 +66,7 @@ export function AppTopBar({ title, subtitle, leadingIcon, onBack, propertyName, 
             />
           </View>
         )}
+        {searchField ?? (
         <View style={styles.text}>
           <Text numberOfLines={1} style={styles.title} accessibilityRole="header">
             {title}
@@ -74,6 +77,7 @@ export function AppTopBar({ title, subtitle, leadingIcon, onBack, propertyName, 
             </Text>
           ) : null}
         </View>
+        )}
         {actions ? (
           <ProfileHighlightContext.Provider value={setProfileHighlighted}>
             <View style={styles.actions}>{actions}</View>

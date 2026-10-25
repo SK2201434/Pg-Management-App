@@ -4,18 +4,23 @@ import {
   doc,
   GeoPoint,
   serverTimestamp,
-  setDoc,
   updateDoc,
   writeBatch,
 } from 'firebase/firestore';
 
+import { cloudinaryConfigPresence } from '@/config/cloudinary';
 import { getFirestoreDb } from '@/config/firebase';
+import { syncListing } from '@/features/discovery/discoveryService';
+import { ImageUploadError } from '@/features/storage/imageStorage';
+import { describeCause, logUploadFailure } from '@/features/storage/uploadDiagnostics';
 import {
   deleteStoredPhoto,
   getPhotoErrorMessage,
   uploadPropertyPhoto,
   type StoredPhoto,
 } from '@/features/properties/photoUpload';
+import { addLocationLocks, assertLocationFree, DuplicateLocationError } from '@/features/properties/propertyLocationService';
+import { completeInviteReferral } from '@/features/referral/referralService';
 import { PropertyRequestError } from '@/features/properties/propertyService';
 import {
   buildRoomWrites,
@@ -52,6 +57,7 @@ function withTimeout<T>(promise: Promise<T>): Promise<T> {
 
 function asRequestError(error: unknown): PropertyRequestError {
   if (error instanceof PropertyRequestError) return error;
+  if (error instanceof DuplicateLocationError) return new PropertyRequestError('duplicate-location', undefined, { cause: error });
   const raw = (error as { code?: unknown } | null)?.code;
   const code = typeof raw === 'string' ? raw.replace(/^firestore\//, '') : undefined;
   const kind =
@@ -103,18 +109,28 @@ export class PropertySaveSession {
     if (!this.created) {
       report({ message: 'Creating property…' });
       this.createAttempts += 1;
+      const place = { ...propertyFields(form), geo: form.geo };
+      // One property per location: refuse early with a clear message, then claim the location
+      // in the same batch that creates the property (the lock can only ever be created once).
+      await assertLocationFree(place, this.propertyId);
       try {
-        await withTimeout(
-          setDoc(propertyRef, {
-            ownerUid: this.ownerUid,
-            ...propertyFields(form),
-            ...(form.geo ? { geo: new GeoPoint(form.geo.latitude, form.geo.longitude) } : {}),
-            setupStatus: needsFinalize ? 'draft' : 'ready',
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-          }),
-        );
+        const batch = writeBatch(db);
+        batch.set(propertyRef, {
+          ownerUid: this.ownerUid,
+          ...propertyFields(form),
+          amenities: form.amenities,
+          ...(form.geo ? { geo: new GeoPoint(form.geo.latitude, form.geo.longitude) } : {}),
+          setupStatus: needsFinalize ? 'draft' : 'ready',
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        addLocationLocks(batch, place, this.propertyId);
+        // The permanent Property ID tenants join with: the property's own id, plus who owns it.
+        batch.set(doc(db, 'propertyJoin', this.propertyId), { ownerUid: this.ownerUid, createdAt: serverTimestamp() });
+        await withTimeout(batch.commit());
       } catch (error) {
+        // Another save may have claimed the location a moment ago: say so rather than "denied".
+        if ((error as { code?: string } | null)?.code?.endsWith('permission-denied')) await assertLocationFree(place, this.propertyId);
         // A first attempt whose acknowledgement was lost may still have been applied; re-creating
         // an existing document is then denied, which is not a reason to stop.
         const code = (error as { code?: string } | null)?.code;
@@ -123,6 +139,9 @@ export class PropertySaveSession {
       this.created = true;
       if (!needsFinalize) {
         this.finalized = true;
+        // Discovery: list the finished property publicly (contact stays private).
+        await this.publish();
+        void completeInviteReferral(this.ownerUid, this.propertyId);
         return { propertyId: this.propertyId, photosUploaded: 0, photosFailed: 0 };
       }
     }
@@ -167,17 +186,28 @@ export class PropertySaveSession {
     const roomPhotos = stored(form.roomPhotos);
     const optional = propertyFields(form);
     const clearable = ['description', 'contactName', 'contactPhone', 'city', 'postalCode'] as const;
-    await withTimeout(
-      updateDoc(propertyRef, {
-        ...optional,
-        ...Object.fromEntries(clearable.filter((k) => !(k in optional)).map((k) => [k, deleteField()])),
-        photos,
-        roomPhotos,
-        setupStatus: 'ready',
-        updatedAt: serverTimestamp(),
-      }),
-    );
+    try {
+      await withTimeout(
+        updateDoc(propertyRef, {
+          ...optional,
+          ...Object.fromEntries(clearable.filter((k) => !(k in optional)).map((k) => [k, deleteField()])),
+          photos,
+          roomPhotos,
+          setupStatus: 'ready',
+          updatedAt: serverTimestamp(),
+        }),
+      );
+    } catch (error) {
+      // Photos may already be uploaded; say so in the dev log, then fail the save as before.
+      logUploadFailure(new ImageUploadError('firestore/persist', { cause: error, details: { stage: 'firestore-persistence', ...describeCause(error) } }), {
+        configured: cloudinaryConfigPresence(),
+      });
+      throw error;
+    }
     this.finalized = true;
+    // Discovery: the property just became 'ready', so list it now (contact stays private).
+    await this.publish();
+    void completeInviteReferral(this.ownerUid, this.propertyId);
 
     return {
       propertyId: this.propertyId,
@@ -185,6 +215,15 @@ export class PropertySaveSession {
       photosFailed: this.photoFailures,
       photoError: this.photoError,
     };
+  }
+
+  /**
+   * Lists the saved property publicly, waiting for it and retrying once, so a save with or without
+   * photos is discoverable as soon as it returns. A failure never fails the save: the owner's
+   * properties screen re-syncs any ready property that still has no listing.
+   */
+  private async publish() {
+    if ((await syncListing(this.propertyId, this.ownerUid)) === 'failed') await syncListing(this.propertyId, this.ownerUid);
   }
 
   get isFinalized() {
@@ -231,7 +270,7 @@ export class PropertySaveSession {
     for (const [uri, stored] of [...this.uploaded]) {
       if (!wanted.has(uri)) {
         this.uploaded.delete(uri);
-        void deleteStoredPhoto(stored.path);
+        void deleteStoredPhoto(stored);
       }
     }
     this.photoFailures = 0;
@@ -252,6 +291,16 @@ export class PropertySaveSession {
         );
         this.uploaded.set(photo.uri, stored);
       } catch (error) {
+        // The user gets one friendly message; the developer gets the real cause in the Metro log.
+        logUploadFailure(error, {
+          index: i + 1,
+          total,
+          room,
+          mimeType: photo.mimeType,
+          fileSize: photo.fileSize,
+          uri: photo.uri,
+          configured: cloudinaryConfigPresence(),
+        });
         this.photoFailures += 1;
         this.photoError ??= getPhotoErrorMessage(error);
       }

@@ -21,7 +21,7 @@ import { PhotosStep } from '@/features/properties/addProperty/PhotosStep';
 import { ReviewStep } from '@/features/properties/addProperty/ReviewStep';
 import { RoomsStep } from '@/features/properties/addProperty/RoomsStep';
 import { PrimaryButton, SecondaryButton } from '@/features/properties/addProperty/formParts';
-import { getPropertyErrorMessage } from '@/features/properties/propertyService';
+import { getPropertyErrorMessage, isDuplicateLocationError } from '@/features/properties/propertyService';
 import type { SaveResult } from '@/features/properties/propertyCreation';
 import {
   detailsValid,
@@ -68,6 +68,8 @@ export function AddPropertyScreen() {
   const { confirm, dialog } = useConfirm();
   const { save, isPending, isError, error, progress, reset } = useAddProperty();
 
+  const duplicateLocation = isError && isDuplicateLocationError(error);
+  const locationError = duplicateLocation ? getPropertyErrorMessage(error) : undefined;
   const errors = validateForm(form);
   const update = (patch: Partial<PropertyForm>) => {
     if (isError) reset();
@@ -124,6 +126,10 @@ export function AddPropertyScreen() {
       return;
     }
     save(form, {
+      // A duplicate location is fixed on Details, where the error shows above the coordinates.
+      onError: (failure) => {
+        if (isDuplicateLocationError(failure)) goTo(0);
+      },
       onSuccess: (result) => {
         allowLeave.current = true;
         if (router.canGoBack()) router.back();
@@ -133,7 +139,7 @@ export function AddPropertyScreen() {
     });
   };
 
-  const stepProps = { form, update, errors, showErrors };
+  const stepProps = { form, update, errors, showErrors, locationError };
 
   return (
     <View style={styles.flex}>
@@ -185,7 +191,7 @@ export function AddPropertyScreen() {
           </View>
         ) : null}
 
-        {isError ? (
+        {isError && !duplicateLocation ? (
           <View style={styles.errorBox} accessibilityLiveRegion="polite">
             <Text style={styles.errorText}>{getPropertyErrorMessage(error)}</Text>
             <Text style={styles.errorNote}>

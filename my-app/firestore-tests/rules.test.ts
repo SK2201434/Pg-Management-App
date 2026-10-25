@@ -361,6 +361,57 @@ describe('referral consumption (atomic batch)', () => {
   });
 });
 
+describe('referral credits', () => {
+  const increment = (n: number) => firebase.firestore.FieldValue.increment(n);
+  const complete = (db: Firestore, referred: string, credits = 100, referrer = 'owner1', propertyId = 'pr3') => {
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'inviteReferrals', referred), { status: 'completed', completedAt: serverTimestamp(), propertyId });
+    batch.update(doc(db, 'users', referrer), { credits: increment(credits) });
+    return batch;
+  };
+
+  beforeEach(async () => {
+    await seed(async (db) => {
+      await setDoc(doc(db, 'users', 'owner1'), { ...profile('owner1', 'owner'), createdAt: Timestamp.now(), updatedAt: Timestamp.now() });
+      await setDoc(doc(db, 'users', 'owner2'), { ...profile('owner2', 'owner'), createdAt: Timestamp.now(), updatedAt: Timestamp.now() });
+      await setDoc(doc(db, 'users', 'o3'), { ...profile('o3', 'owner'), createdAt: Timestamp.now(), updatedAt: Timestamp.now() });
+      await setDoc(doc(db, 'properties', 'pr3'), { ownerUid: 'o3', name: 'P', setupStatus: 'ready', createdAt: Timestamp.now(), updatedAt: Timestamp.now() });
+      await setDoc(doc(db, 'properties', 'pr3draft'), { ownerUid: 'o3', name: 'P', setupStatus: 'draft', createdAt: Timestamp.now(), updatedAt: Timestamp.now() });
+      await setDoc(doc(db, 'properties', 'pr2'), { ownerUid: 'owner2', name: 'P', setupStatus: 'ready', createdAt: Timestamp.now(), updatedAt: Timestamp.now() });
+      await setDoc(doc(db, 'inviteReferrals', 'o3'), {
+        referrerUid: 'owner1', referredUid: 'o3', code: 'ABCDEFGHJK', status: 'registered', registeredAt: Timestamp.now(),
+      });
+    });
+  });
+
+  it('credits 100 to the referrer when the referred owner registers a property, once', async () => {
+    await assertSucceeds(complete(ctx('o3'), 'o3').commit());
+    await seed(async (db) => {
+      expect((await getDoc(doc(db, 'users', 'owner1'))).data()?.credits).toBe(100);
+    });
+    await assertFails(complete(ctx('o3'), 'o3').commit());
+  });
+
+  it('rejects completing without the credit, with the wrong amount, or crediting someone else', async () => {
+    await assertFails(updateDoc(doc(ctx('o3'), 'inviteReferrals', 'o3'), { status: 'completed', completedAt: serverTimestamp(), propertyId: 'pr3' }));
+    await assertFails(complete(ctx('o3'), 'o3', 500).commit());
+    await assertFails(complete(ctx('o3'), 'o3', 10).commit());
+    await assertFails(complete(ctx('o3'), 'o3', 100, 'owner2').commit());
+  });
+
+  it('rejects completion with no property, a draft property, or a property owned by someone else', async () => {
+    await assertFails(complete(ctx('o3'), 'o3', 100, 'owner1', 'missing').commit());
+    await assertFails(complete(ctx('o3'), 'o3', 100, 'owner1', 'pr3draft').commit());
+    await assertFails(complete(ctx('o3'), 'o3', 100, 'owner1', 'pr2').commit());
+  });
+
+  it('rejects a credit with no completing referral, and any direct edit of credits', async () => {
+    await assertFails(updateDoc(doc(ctx('owner2'), 'users', 'owner1'), { credits: 10 }));
+    await assertFails(updateDoc(doc(ctx('owner1'), 'users', 'owner1'), { credits: 999, updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(ctx('o3'), 'users', 'owner1'), { credits: increment(100) }));
+  });
+});
+
 describe('property location field', () => {
   const base = () => ({ ownerUid: 'owner1', name: 'Sunrise PG', city: 'Visakhapatnam', state: 'Andhra Pradesh', postalCode: '530041', contactName: 'Ravi', contactPhone: '9876543210', setupStatus: 'ready', createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
   beforeEach(async () => {
@@ -623,6 +674,310 @@ describe('cross-owner access and tenant privacy', () => {
     await assertSucceeds(setDoc(doc(ctx('owner1'), 'stays', 'new1'), stay('p1', 't1')));
     await assertFails(setDoc(doc(ctx('owner1'), 'stays', 'new2'), stay('p2', 't2'))); // not their property
     await assertFails(setDoc(doc(ctx('owner1'), 'stays', 'new3'), stay('p1', 't2'))); // not a member
+  });
+
+  it('lets a tenant read property updates only during their stay', async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const update = { ownerUid: 'owner1', propertyId: 'p1', title: 'T', message: 'M', category: 'notice', createdAt: Timestamp.now() };
+    await seed(async (db) => setDoc(doc(db, 'properties', 'p1', 'updates', 'u1'), update));
+    const member = (tenant: string) => doc(ctx('owner1'), 'properties', 'p1', 'members', tenant);
+    const read = (uid: string) => getDoc(doc(ctx(uid), 'properties', 'p1', 'updates', 'u1'));
+
+    // No check-in date recorded: nothing readable.
+    await assertFails(read('t1'));
+    // Before check-in.
+    await assertSucceeds(updateDoc(member('t1'), { checkInAt: inFuture(day) }));
+    await assertFails(read('t1'));
+    // During the stay (open-ended, then with a future check-out).
+    await assertSucceeds(updateDoc(member('t1'), { checkInAt: inFuture(-day) }));
+    await assertSucceeds(read('t1'));
+    await assertSucceeds(updateDoc(member('t1'), { checkOutAt: inFuture(day) }));
+    await assertSucceeds(read('t1'));
+    // After check-out.
+    await assertSucceeds(updateDoc(member('t1'), { checkOutAt: inFuture(-day / 2) }));
+    await assertFails(read('t1'));
+    // Another property's tenant, and the owner.
+    await assertFails(read('t2'));
+    await assertSucceeds(read('owner1'));
+  });
+
+  it('only lets the owner set a valid stay window and publish updates', async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const member = (uid: string) => doc(ctx(uid), 'properties', 'p1', 'members', 't1');
+    await assertFails(updateDoc(member('t1'), { checkInAt: inFuture(-day) }));
+    await assertFails(updateDoc(doc(ctx('owner2'), 'properties', 'p1', 'members', 't1'), { checkInAt: inFuture(-day) }));
+    await assertFails(updateDoc(member('owner1'), { status: 'inactive' }));
+    await assertFails(updateDoc(member('owner1'), { checkOutAt: inFuture(day) })); // no check-in
+    await assertSucceeds(updateDoc(member('owner1'), { checkInAt: inFuture(-day), checkOutAt: inFuture(day) }));
+    await assertFails(updateDoc(member('owner1'), { checkOutAt: inFuture(-2 * day) })); // before check-in
+
+    const update = { ownerUid: 'owner1', propertyId: 'p1', title: 'T', message: 'M', category: 'notice', createdAt: serverTimestamp() };
+    await assertSucceeds(setDoc(doc(ctx('owner1'), 'properties', 'p1', 'updates', 'n1'), { ...update, createdAt: Timestamp.now() }));
+    await assertFails(setDoc(doc(ctx('t1'), 'properties', 'p1', 'updates', 'n2'), { ...update, ownerUid: 't1', createdAt: Timestamp.now() }));
+    await assertFails(setDoc(doc(ctx('owner2'), 'properties', 'p1', 'updates', 'n3'), { ...update, ownerUid: 'owner2', createdAt: Timestamp.now() }));
+    await assertFails(setDoc(doc(ctx('owner1'), 'properties', 'p1', 'updates', 'n4'), { ...update, category: 'other', createdAt: Timestamp.now() }));
+  });
+
+  it('lets a tenant raise requests only for their own active membership', async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const req = (tenant: string, extra: Record<string, unknown> = {}) => ({
+      tenantUid: tenant, ownerUid: 'owner1', propertyId: 'p1', category: 'wifi', title: 'Wi-Fi drops',
+      description: 'Drops every evening.', status: 'open', createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...extra,
+    });
+    const col = (uid: string, property = 'p1') => ctx(uid).collection(`properties/${property}/requests`);
+
+    await assertSucceeds(col('t1').doc('r1').set(req('t1')));
+    await assertFails(col('t1').doc('r2').set(req('t2'))); // on behalf of another tenant
+    await assertFails(col('t1').doc('r3').set(req('t1', { status: 'resolved' }))); // owner-controlled status
+    await assertFails(col('t1').doc('r4').set(req('t1', { ownerUid: 'owner2' }))); // wrong owner
+    await assertFails(col('t1').doc('r5').set(req('t1', { category: 'bogus' })));
+    await assertFails(col('t1').doc('r6').set(req('t1', { title: '' })));
+    await assertFails(col('t1', 'p2').doc('r7').set(req('t1', { propertyId: 'p2', ownerUid: 'owner2' }))); // not their property
+    await assertFails(col('owner1').doc('r8').set(req('owner1'))); // owners do not raise tenant requests
+
+    // Reading: only the tenant's own requests and the owner's; no edits by the tenant.
+    await assertSucceeds(getDoc(doc(ctx('t1'), 'properties', 'p1', 'requests', 'r1')));
+    await assertSucceeds(getDoc(doc(ctx('owner1'), 'properties', 'p1', 'requests', 'r1')));
+    await assertFails(getDoc(doc(ctx('t2'), 'properties', 'p1', 'requests', 'r1')));
+    await assertFails(getDoc(doc(ctx('owner2'), 'properties', 'p1', 'requests', 'r1')));
+    await assertFails(updateDoc(doc(ctx('t1'), 'properties', 'p1', 'requests', 'r1'), { status: 'resolved', updatedAt: serverTimestamp() }));
+    await assertFails(doc(ctx('t1'), 'properties', 'p1', 'requests', 'r1').delete());
+    await assertSucceeds(updateDoc(doc(ctx('owner1'), 'properties', 'p1', 'requests', 'r1'), { status: 'in_progress', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(ctx('owner1'), 'properties', 'p1', 'requests', 'r1'), { title: 'x', updatedAt: serverTimestamp() }));
+
+    // After the check-out date, or once the membership is inactive, no new requests.
+    await assertSucceeds(updateDoc(doc(ctx('owner1'), 'properties', 'p1', 'members', 't1'), { checkInAt: inFuture(-2 * day), checkOutAt: inFuture(-day) }));
+    await assertFails(col('t1').doc('r9').set(req('t1')));
+    await seed(async (db) => updateDoc(doc(db, 'properties', 'p1', 'members', 't1'), { checkOutAt: inFuture(day), status: 'inactive' }));
+    await assertFails(col('t1').doc('r10').set(req('t1')));
+  });
+
+  it('lets a tenant request a stay with a Property ID, even for an unlisted property', async () => {
+    const join = (uid: string, id = 'p2') => doc(ctx(uid), 'propertyJoin', id);
+    // Only the property's owner creates the lookup record (p2 belongs to owner2); anyone verified reads it.
+    await assertFails(setDoc(join('owner1'), { ownerUid: 'owner1', createdAt: serverTimestamp() }));
+    await assertFails(setDoc(join('t1'), { ownerUid: 't1', createdAt: serverTimestamp() }));
+    await assertSucceeds(setDoc(join('owner2'), { ownerUid: 'owner2', createdAt: serverTimestamp() }));
+    await assertFails(updateDoc(join('owner2'), { ownerUid: 'owner1' }));
+    await assertSucceeds(getDoc(join('t1')));
+
+    const request = (extra: Record<string, unknown> = {}) => ({
+      tenantUid: 't1', ownerUid: 'owner2', propertyId: 'p2', tenantName: 't1', status: 'pending',
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...extra,
+    });
+    const ref = (uid: string) => doc(ctx(uid), 'properties', 'p2', 'stayRequests', uid);
+    await assertFails(setDoc(ref('t1'), request({ ownerUid: 'owner1' }))); // owner must be the property's owner
+    await assertSucceeds(setDoc(ref('t1'), request()));
+  });
+
+  it('lists only owner-published listings and lets a tenant request a stay only for a listed property', async () => {
+    const listing = (extra: Record<string, unknown> = {}) => ({
+      ownerUid: 'owner1', propertyId: 'p1', listed: true, name: 'Green PG', sharingOptions: [1, 2], updatedAt: serverTimestamp(), ...extra,
+    });
+    const listings = (uid: string) => ctx(uid).collection('publicListings');
+    // Only the property's owner can publish, and only the allowed public fields.
+    await assertSucceeds(listings('owner1').doc('p1').set(listing()));
+    await assertFails(listings('owner2').doc('p1').set(listing({ ownerUid: 'owner2' })));
+    await assertFails(listings('t1').doc('p1').set(listing({ ownerUid: 't1' })));
+    await assertFails(listings('owner1').doc('p1').set(listing({ secretNotes: 'x' })));
+    await assertSucceeds(listings('owner2').doc('p2').set(listing({ ownerUid: 'owner2', propertyId: 'p2', listed: false })));
+
+    // Anyone signed in reads listed ones; an unlisted one is only visible to its owner.
+    await assertSucceeds(listings('t1').where('listed', '==', true).get());
+    await assertSucceeds(getDoc(doc(ctx('t1'), 'publicListings', 'p1')));
+    await assertFails(getDoc(doc(ctx('t1'), 'publicListings', 'p2')));
+    await assertFails(listings('t1').get());
+
+    // A request: own uid as the document id, pending, for a listed property.
+    const request = (tenant: string, extra: Record<string, unknown> = {}) => ({
+      tenantUid: tenant, ownerUid: 'owner1', propertyId: 'p1', tenantName: tenant, status: 'pending',
+      createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...extra,
+    });
+    const ref = (uid: string, id = uid) => doc(ctx(uid), 'properties', 'p1', 'stayRequests', id);
+    await assertSucceeds(setDoc(ref('t1'), request('t1', { message: 'Hello' })));
+    await assertFails(setDoc(ref('t1', 'someone-else'), request('t1'))); // not keyed by own uid
+    await assertFails(setDoc(doc(ctx('t2'), 'properties', 'p2', 'stayRequests', 't2'), request('t2', { propertyId: 'p2', ownerUid: 'owner2' }))); // unlisted
+    await assertFails(setDoc(ref('t2'), request('t2', { status: 'approved' })));
+    await assertFails(setDoc(ref('t2'), request('t2', { ownerUid: 'owner2' })));
+    await assertFails(setDoc(ref('owner1'), request('owner1'))); // owners do not apply
+
+    // Visibility and decisions.
+    await assertSucceeds(getDoc(ref('t1')));
+    await assertSucceeds(getDoc(doc(ctx('owner1'), 'properties', 'p1', 'stayRequests', 't1')));
+    await assertFails(getDoc(doc(ctx('t2'), 'properties', 'p1', 'stayRequests', 't1')));
+    await assertFails(getDoc(doc(ctx('owner2'), 'properties', 'p1', 'stayRequests', 't1')));
+    await assertFails(updateDoc(ref('t1'), { status: 'approved', updatedAt: serverTimestamp() })); // cannot self-approve
+    await assertSucceeds(updateDoc(ref('t1'), { status: 'withdrawn', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(ref('t1'), { status: 'approved', updatedAt: serverTimestamp() }));
+    await assertSucceeds(updateDoc(ref('t1'), { status: 'pending', message: 'Again', updatedAt: serverTimestamp() }));
+    const ownerRef = doc(ctx('owner1'), 'properties', 'p1', 'stayRequests', 't1');
+    await assertSucceeds(updateDoc(ownerRef, { status: 'approved', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(ownerRef, { status: 'rejected', updatedAt: serverTimestamp() })); // already decided
+    await assertFails(updateDoc(doc(ctx('owner2'), 'properties', 'p1', 'stayRequests', 't1'), { status: 'rejected', updatedAt: serverTimestamp() }));
+    // Approval grants nothing: no membership appears and the tenant still cannot read tenant-only data.
+    await assertFails(getDoc(doc(ctx('t2'), 'properties', 'p1')));
+  });
+
+  it('lets a location lock be created once, only by the property’s owner', async () => {
+    const key = 'addr_0123456789abcd';
+    const lock = (property: string) => ({ propertyId: property, createdAt: serverTimestamp() });
+    const ref = (uid: string, id = key) => doc(ctx(uid), 'propertyLocations', id);
+    await assertFails(setDoc(ref('t1'), lock('p1'))); // a tenant cannot claim
+    await assertFails(setDoc(ref('owner1'), lock('p2'))); // not owner1's property
+    await assertFails(setDoc(ref('owner1', 'bad_key'), lock('p1')));
+    await assertFails(setDoc(ref('owner1'), { ...lock('p1'), extra: 1 }));
+    await assertSucceeds(setDoc(ref('owner1'), lock('p1')));
+    // Taken: nobody can claim it again or change it; anyone signed in can see it exists.
+    await assertFails(setDoc(ref('owner2'), lock('p2')));
+    await assertFails(setDoc(ref('owner1'), lock('p1')));
+    await assertSucceeds(getDoc(ref('t1')));
+    await assertSucceeds(getDoc(ref('owner2', 'addr_ffffffffffffff'))); // a free key can be checked
+    await assertFails(ctx('owner1').collection('propertyLocations').get());
+    // Only the owner of the locked property can release it.
+    await assertFails(deleteDoc(ref('owner2')));
+    await assertSucceeds(deleteDoc(ref('owner1')));
+  });
+
+  it('lets only the owner edit a property, and never change who owns it', async () => {
+    const edit = (uid: string, id: string, data: Record<string, unknown>) =>
+      updateDoc(doc(ctx(uid), 'properties', id), { ...data, updatedAt: serverTimestamp() });
+    await assertSucceeds(edit('owner1', 'p1', { name: 'Renamed', amenities: ['wifi', 'meals'], description: 'New text' }));
+    await assertFails(edit('owner2', 'p1', { name: 'Hijacked' })); // another owner
+    await assertFails(edit('t1', 'p1', { name: 'Tenant edit' })); // a tenant
+    await assertFails(edit('owner1', 'p2', { name: 'Not mine' })); // the other owner's property
+    await assertFails(edit('owner1', 'p1', { ownerUid: 'owner2' })); // ownership is immutable
+    await assertFails(edit('owner1', 'p1', { secretNotes: 'x' })); // only known fields
+    await assertFails(edit('owner1', 'p1', { amenities: Array.from({ length: 21 }, (_, i) => String(i)) }));
+    // Moving the property: its old lock is released and a new one claimed in one batch.
+    const lock = (key: string) => doc(ctx('owner1'), 'propertyLocations', key);
+    await assertSucceeds(setDoc(lock('addr_00000000000001'), { propertyId: 'p1', createdAt: serverTimestamp() }));
+    const batch = writeBatch(ctx('owner1'));
+    batch.update(doc(ctx('owner1'), 'properties', 'p1'), { location: 'New street', updatedAt: serverTimestamp() });
+    batch.delete(lock('addr_00000000000001'));
+    batch.set(lock('addr_00000000000002'), { propertyId: 'p1', createdAt: serverTimestamp() });
+    await assertSucceeds(batch.commit());
+    await assertFails(deleteDoc(doc(ctx('owner2'), 'propertyLocations', 'addr_00000000000002'))); // not theirs to release
+  });
+
+  it('lets only a resident review a property, once, and only they can change or delete it', async () => {
+    const review = (uid: string, extra: Record<string, unknown> = {}) => ({
+      tenantUid: uid, propertyId: 'p1', tenantName: uid, rating: 4, comment: 'Clean rooms', createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...extra,
+    });
+    const ref = (uid: string, id = uid) => doc(ctx(uid), 'properties', 'p1', 'reviews', id);
+    await assertSucceeds(setDoc(ref('t1'), review('t1')));
+    await assertFails(setDoc(ref('t2'), review('t2'))); // t2 is a member of p2, not p1
+    await assertFails(setDoc(ref('owner1'), review('owner1'))); // owners do not review
+    await assertFails(setDoc(ref('t1', 'someone-else'), review('t1'))); // not keyed by own uid
+    await assertFails(setDoc(ref('t1', 'x'), review('t1', { rating: 5 })));
+    await assertFails(setDoc(ref('t1'), review('t1', { rating: 6 }))); // out of range (and not a create)
+
+    // Reading is open to signed-in users, including owners.
+    await assertSucceeds(getDoc(ref('t2', 't1')));
+    await assertSucceeds(getDoc(ref('owner2', 't1')));
+
+    // Editing: own rating and comment only.
+    await assertSucceeds(updateDoc(ref('t1'), { rating: 5, comment: 'Great', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(ref('t1'), { rating: 0, updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(ref('t1'), { tenantName: 'Someone else', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(ctx('t2'), 'properties', 'p1', 'reviews', 't1'), { rating: 1, updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(doc(ctx('owner1'), 'properties', 'p1', 'reviews', 't1'), { rating: 1, updatedAt: serverTimestamp() }));
+
+    // Deleting: only the author.
+    await assertFails(deleteDoc(doc(ctx('t2'), 'properties', 'p1', 'reviews', 't1')));
+    await assertFails(deleteDoc(doc(ctx('owner1'), 'properties', 'p1', 'reviews', 't1')));
+    await assertSucceeds(deleteDoc(ref('t1')));
+  });
+
+  it('closes reviews 30 days after the resident leaves', async () => {
+    const day = 24 * 60 * 60 * 1000;
+    const review = (extra: Record<string, unknown> = {}) => ({
+      tenantUid: 't1', propertyId: 'p1', tenantName: 't1', rating: 4, createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...extra,
+    });
+    const ref = () => doc(ctx('t1'), 'properties', 'p1', 'reviews', 't1');
+    const leave = (daysAgo: number) =>
+      seed(async (db) => updateDoc(doc(db, 'properties', 'p1', 'members', 't1'), { checkInAt: inFuture(-400 * day), checkOutAt: inFuture(-daysAgo * day) }));
+
+    await assertSucceeds(setDoc(ref(), review())); // still staying (no check-out date)
+    await leave(10); // left 10 days ago: inside the window
+    await assertSucceeds(updateDoc(ref(), { rating: 5, updatedAt: serverTimestamp() }));
+    await leave(40); // left 40 days ago: closed
+    await assertFails(updateDoc(ref(), { rating: 3, updatedAt: serverTimestamp() }));
+    await assertSucceeds(deleteDoc(ref())); // removing their own review is still allowed
+    await assertFails(setDoc(ref(), review())); // and a new one cannot be added
+    await seed(async (db) => updateDoc(doc(db, 'properties', 'p1', 'members', 't1'), { checkOutAt: inFuture(-5 * day), status: 'inactive' }));
+    await assertSucceeds(setDoc(ref(), review())); // left 5 days ago, even though inactive
+    await seed(async (db) => updateDoc(doc(db, 'properties', 'p1', 'members', 't1'), { checkOutAt: firebase.firestore.FieldValue.delete() }));
+    await assertSucceeds(deleteDoc(ref()));
+    await assertFails(setDoc(ref(), review())); // inactive with no check-out date: counts as left
+  });
+
+  it('lets a tenant list only their own stay requests across properties', async () => {
+    await seed(async (db) => {
+      const now = Timestamp.now();
+      for (const [property, owner, tenant] of [['p1', 'owner1', 't1'], ['p2', 'owner2', 't2']]) {
+        await setDoc(doc(db, 'publicListings', property), { ownerUid: owner, propertyId: property, listed: true, name: property, sharingOptions: [], updatedAt: now });
+        await setDoc(doc(db, 'properties', property, 'stayRequests', tenant), {
+          tenantUid: tenant, ownerUid: owner, propertyId: property, tenantName: tenant, status: 'pending', createdAt: now, updatedAt: now,
+        });
+      }
+    });
+    const mine = (uid: string) => ctx(uid).collectionGroup('stayRequests').where('tenantUid', '==', uid).get();
+    expect((await assertSucceeds(mine('t1'))).size).toBe(1);
+    expect((await assertSucceeds(mine('t2'))).size).toBe(1);
+    // Asking for someone else's, or for all, is refused.
+    await assertFails(ctx('t1').collectionGroup('stayRequests').where('tenantUid', '==', 't2').get());
+    await assertFails(ctx('t1').collectionGroup('stayRequests').get());
+    // The owner still decides, and the tenant then sees the change in the same query.
+    await assertSucceeds(updateDoc(doc(ctx('owner1'), 'properties', 'p1', 'stayRequests', 't1'), { status: 'approved', updatedAt: serverTimestamp() }));
+    const after = await assertSucceeds(mine('t1'));
+    expect(after.docs[0].data().status).toBe('approved');
+  });
+
+  it('adds a tenant with a bed only together with approving their stay request', async () => {
+    // owner1 owns p1 (seeded with rooms? this test seeds its own room and bed).
+    await seed(async (db) => {
+      const now = Timestamp.now();
+      await setDoc(doc(db, 'properties', 'p1', 'rooms', 'r1'), { ownerUid: 'owner1', propertyId: 'p1', roomNumber: '101', sharing: 2, ac: false, updatedAt: now });
+      await setDoc(doc(db, 'properties', 'p1', 'rooms', 'r1', 'beds', 'b1'), { ownerUid: 'owner1', propertyId: 'p1', roomId: 'r1', label: 'Bed 1', status: 'available', updatedAt: now });
+      await setDoc(doc(db, 'publicListings', 'p1'), { ownerUid: 'owner1', propertyId: 'p1', listed: true, name: 'P', sharingOptions: [2], updatedAt: now });
+      await setDoc(doc(db, 'properties', 'p1', 'stayRequests', 't3'), { tenantUid: 't3', ownerUid: 'owner1', propertyId: 'p1', tenantName: 't3', status: 'pending', createdAt: now, updatedAt: now });
+      await setDoc(doc(db, 'users', 't3'), { ...profile('t3', 'tenant'), createdAt: now, updatedAt: now });
+    });
+    const owner = ctx('owner1');
+    const refs = {
+      resident: doc(owner, 'properties', 'p1', 'residents', 'res1'),
+      allocation: doc(owner, 'properties', 'p1', 'bedAllocations', 'b1'),
+      member: doc(owner, 'properties', 'p1', 'members', 't3'),
+      request: doc(owner, 'properties', 'p1', 'stayRequests', 't3'),
+    };
+    const writes = (b: ReturnType<typeof writeBatch>, o: { approve: boolean; member: boolean; link: boolean }) => {
+      b.set(refs.resident, {
+        ownerUid: 'owner1', propertyId: 'p1', roomId: 'r1', bedId: 'b1', roomNumber: '101', bedLabel: 'Bed 1', sharing: 2, name: 't3', gender: 'male',
+        phoneCountry: '+91', phone: '9876543210', rentInr: 5000, moveInDate: Timestamp.now(), status: 'active', createdAt: serverTimestamp(),
+        ...(o.link ? { tenantUid: 't3' } : {}),
+      });
+      b.set(refs.allocation, { ownerUid: 'owner1', propertyId: 'p1', roomId: 'r1', bedId: 'b1', residentId: 'res1', residentName: 't3', createdAt: serverTimestamp() });
+      if (o.approve) b.update(refs.request, { status: 'approved', updatedAt: serverTimestamp() });
+      if (o.member) b.set(refs.member, { tenantUid: 't3', propertyId: 'p1', ownerUid: 'owner1', displayName: 't3', status: 'active', source: 'stay-request', checkInAt: Timestamp.now(), joinedAt: serverTimestamp() });
+    };
+
+    // A member without an approved request, or a link without a member, is refused.
+    const noApprove = writeBatch(owner); writes(noApprove, { approve: false, member: true, link: true });
+    await assertFails(noApprove.commit());
+    const noMember = writeBatch(owner); writes(noMember, { approve: true, member: false, link: true });
+    await assertFails(noMember.commit());
+    // A tenant cannot make themselves a member, and another owner cannot add them.
+    await assertFails(setDoc(doc(ctx('t3'), 'properties', 'p1', 'members', 't3'), { tenantUid: 't3', propertyId: 'p1', ownerUid: 'owner1', displayName: 't3', status: 'active', source: 'stay-request', joinedAt: serverTimestamp() }));
+    const other = writeBatch(ctx('owner2'));
+    other.set(doc(ctx('owner2'), 'properties', 'p1', 'members', 't3'), { tenantUid: 't3', propertyId: 'p1', ownerUid: 'owner2', displayName: 't3', status: 'active', source: 'stay-request', joinedAt: serverTimestamp() });
+    await assertFails(other.commit());
+
+    // Together, it works: the tenant is a resident with a bed, a member, and the request is approved.
+    const good = writeBatch(owner); writes(good, { approve: true, member: true, link: true });
+    await assertSucceeds(good.commit());
+    expect((await getDoc(refs.request)).data()?.status).toBe('approved');
+    await assertSucceeds(getDoc(doc(ctx('t3'), 'properties', 'p1', 'members', 't3')));
+    await assertSucceeds(getDoc(doc(ctx('t3'), 'properties', 'p1')));
   });
 
   it('denies a disabled account all data access', async () => {

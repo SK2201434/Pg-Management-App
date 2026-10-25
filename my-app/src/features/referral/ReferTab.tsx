@@ -5,8 +5,9 @@ import { ActivityIndicator, LayoutAnimation, Pressable, Share, StyleSheet, Text,
 
 import { AppButton } from '@/components/app-button';
 import { BrandColors } from '@/constants/theme';
-import { buildShareMessage, referralStats, type ReferralRecord } from '@/features/referral/inviteModel';
+import { buildShareMessage, REFERRAL_CREDITS, referralStats, type ReferralRecord } from '@/features/referral/inviteModel';
 import { buildInviteUrl } from '@/features/referral/referralService';
+import { useAccountProfile } from '@/features/profile/useProfile';
 import { useInviteCode, useReferrals } from '@/features/referral/useReferral';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
@@ -17,12 +18,12 @@ const date = (ms: number | null) =>
 const STEPS: { icon: IconName; title: string; text: string }[] = [
   { icon: 'send', title: 'Share your link', text: 'Invite another hostel or PG owner using your referral link.' },
   { icon: 'corporate-fare', title: 'They join HOSTELL', text: 'They create an account through your link, and the sign-up is recorded against your code.' },
-  { icon: 'insights', title: 'Track referral progress', text: 'See when each person has registered and when their profile is complete.' },
+  { icon: 'insights', title: 'Track referral progress', text: 'See when each person has signed up and when they register a property.' },
 ];
 
 // Refer & Earn. The user's own code and their own referral records only. Registered (account created
-// from the link) and completed (verified email + profile) are kept apart. Opening or sharing a link is
-// not tracked, and HOSTELL has no reward policy, so no reward is promised or shown. "Your Referrals"
+// from the link) and completed (a property registered) are kept apart. Opening or sharing a link is
+// not tracked. A completed referral credits the owner (see completeInviteReferral). "Your Referrals"
 // starts collapsed; the data is fetched once by the screen, not on each toggle.
 export function ReferTab() {
   const code = useInviteCode();
@@ -68,7 +69,7 @@ export function ReferTab() {
               Bring another owner to HOSTELL.
             </Text>
             <Text style={styles.body}>
-              Share your personal link with hostel and PG owners, and see here when they sign up and finish their profile. HOSTELL has no referral rewards yet.
+              Share your personal link with hostel and PG owners, and see here when they sign up and register their property. Earn {REFERRAL_CREDITS} credits for every owner who registers a property.
             </Text>
           </View>
           <View style={styles.heroIcon}>
@@ -199,10 +200,10 @@ function Perk({ icon, label, value }: { icon: IconName; label: string; value: st
 
 type Filter = 'all' | 'qualified' | 'pending';
 
-// Expanded "Your Referrals". Qualified = the referred account is registered AND completed (verified
-// email + profile). Pending = registered, profile not complete yet. There is no reward system, so no
-// reward is shown; the referred person's name and contact details are never shown to the referrer.
+// Expanded "Your Referrals". Qualified = the referred account is registered AND completed (registered a
+// property). Pending = registered, no property yet. The referred person's name and contact details are never shown to the referrer.
 function Referrals({ records }: { records: ReferralRecord[] }) {
+  const credits = useAccountProfile().data?.credits ?? 0;
   const [filter, setFilter] = useState<Filter>('all');
 
   if (records.length === 0) {
@@ -249,7 +250,7 @@ function Referrals({ records }: { records: ReferralRecord[] }) {
             </View>
           </View>
           <Text style={styles.metricValue}>{stats.completed}</Text>
-          <Text style={styles.muted}>No rewards yet</Text>
+          <Text style={styles.muted}>{credits} credits balance</Text>
         </View>
       </View>
 
@@ -259,19 +260,19 @@ function Referrals({ records }: { records: ReferralRecord[] }) {
           <Text style={styles.sectionLabel}>Referral status overview</Text>
         </View>
         {progress !== null ? (
-          <View style={styles.progressTrack} accessibilityLabel={`${stats.completed} of ${stats.registered} referrals have a completed profile`}>
+          <View style={styles.progressTrack} accessibilityLabel={`${stats.completed} of ${stats.registered} referrals have registered a property`}>
             <View style={[styles.progressFill, { width: `${Math.round(progress * 100)}%` }]} />
           </View>
         ) : null}
         <View style={styles.tiles}>
           <Tile label="Registered" value={stats.registered} note="Account created" />
-          <Tile label="Completed" value={stats.completed} note="Profile set up" accent />
-          <Tile label="Pending" value={stats.pending} note="Awaiting profile" />
+          <Tile label="Completed" value={stats.completed} note="Property registered" accent />
+          <Tile label="Pending" value={stats.pending} note="Awaiting property" />
         </View>
         <View style={styles.noteRow}>
           <MaterialIcons name="verified" size={16} color={BrandColors.accent} />
           <Text style={styles.noteText}>
-            Registered means an account was created from your link. Completed means its email is verified and its profile is set up. HOSTELL has no referral rewards yet.
+            Registered means an account was created from your link. Completed means that owner has registered a property, and earns you {REFERRAL_CREDITS} credits.
           </Text>
         </View>
       </View>
@@ -330,7 +331,7 @@ function ReferralCard({ record, number }: { record: ReferralRecord; number: numb
           {done ? <MaterialIcons name="check-circle" size={13} color={BrandColors.accent} /> : <View style={styles.badgeDot} />}
           <Text style={[styles.badgeText, done && { color: BrandColors.accent }]}>{done ? 'Qualified' : 'Pending'}</Text>
         </View>
-        <Text style={styles.muted}>{done ? 'Profile complete' : 'Awaiting profile'}</Text>
+        <Text style={styles.muted}>{done ? 'Property registered' : 'Awaiting property'}</Text>
       </View>
     </View>
   );

@@ -4,6 +4,9 @@ import { isGender, type Gender } from '@/constants/account';
 
 import { getFirestoreDb } from '@/config/firebase';
 import { fetchBedOccupants, toRequestError } from '@/features/properties/propertyService';
+import { nextDueMs, periodOf } from '@/features/rent/reminderModel';
+import { startOfDay, type PaymentMethod } from '@/features/rent/rentModel';
+import { ensureRentCharge, recordPayment } from '@/features/rent/rentService';
 import type { NewResident, ResidentEdit } from '@/features/tenants/addTenantModel';
 
 /** The chosen bed is no longer free (blocked, or another resident holds it). */
@@ -22,7 +25,58 @@ export type ResidentInput = NewResident & {
   roomNumber: string;
   bedLabel: string;
   sharing: number;
+  /**
+   * Set when the tenant comes from an approved stay request: the same batch then also approves the
+   * request and adds them as a member, so they appear in the property's tenants and see their stay.
+   */
+  link?: { tenantUid: string; tenantName: string };
+  /** Rent collected on move-in day: it pays the first cycle, up to the tenant's next due date. */
+  collect?: {
+    method: PaymentMethod;
+    reference: string | null;
+    /** Less than the rent when only part was collected; the rest then falls due within a week. */
+    amountInr: number;
+  };
 };
+
+const DAY_MS = 86_400_000;
+
+/** What saving a tenant did besides adding them. */
+export type AddResidentResult = { rentRecorded: boolean | null };
+
+/**
+ * Adds the tenant (see `addResident`), then, when the owner collected rent at move-in, records that
+ * first cycle: a charge for the month ending at the tenant's first due date, paid in full. The charge
+ * needs the resident to exist (its rule reads the stored document), so it cannot share the batch. If
+ * this second step fails the tenant is still added, and the result says the payment was not recorded.
+ */
+export async function createResident(propertyId: string, ownerUid: string, input: ResidentInput): Promise<AddResidentResult> {
+  await addResident(propertyId, ownerUid, input);
+  if (!input.collect) return { rentRecorded: null };
+  try {
+    const cycleDueMs = nextDueMs(input.moveInMs, input.moveInMs);
+    const partial = input.collect.amountInr < input.rentInr;
+    // A part-paid first cycle owes its balance within 7 days, whatever the cycle length. The cycle itself
+    // (its period, and every later one) stays anchored to the move-in date, so settling the balance late
+    // never shifts the tenant's billing day. A fully paid first cycle is covered until the cycle's due date.
+    const dueMs = partial ? startOfDay(Date.now()) + 7 * DAY_MS : cycleDueMs;
+    const chargeId = await ensureRentCharge(propertyId, ownerUid, { tenantUid: input.residentId, period: periodOf(cycleDueMs), amountInr: input.rentInr, dueMs });
+    await recordPayment(propertyId, ownerUid, {
+      // Fixed per tenant, so a retry never records the move-in payment twice.
+      paymentId: `${input.residentId}_movein`,
+      chargeId,
+      tenantUid: input.residentId,
+      amountInr: input.collect.amountInr,
+      method: input.collect.method,
+      paidMs: startOfDay(Date.now()),
+      reference: input.collect.reference,
+      note: partial ? 'Part payment collected at move-in' : 'Collected at move-in',
+    });
+    return { rentRecorded: true };
+  } catch {
+    return { rentRecorded: false };
+  }
+}
 
 /**
  * Adds a tenant and gives them a bed. The resident and the bed claim (`bedAllocations/{bedId}`) are
@@ -32,7 +86,7 @@ export type ResidentInput = NewResident & {
  * guard. If a save fails after possibly succeeding (timeout), the bed claim is looked up before
  * reporting failure.
  */
-export async function createResident(propertyId: string, ownerUid: string, input: ResidentInput): Promise<void> {
+async function addResident(propertyId: string, ownerUid: string, input: ResidentInput): Promise<void> {
   const db = getFirestoreDb();
   const bedRef = doc(db, 'properties', propertyId, 'rooms', input.roomId, 'beds', input.bedId);
   const heldBy = async () => (await fetchBedOccupants(propertyId, ownerUid)).get(input.bedId);
@@ -70,6 +124,7 @@ export async function createResident(propertyId: string, ownerUid: string, input
     ...(input.emergencyName && input.emergencyPhone
       ? { emergencyName: input.emergencyName, emergencyPhone: input.emergencyPhone }
       : {}),
+    ...(input.link ? { tenantUid: input.link.tenantUid } : {}),
     rentInr: input.rentInr,
     ...(input.depositInr !== null ? { depositInr: input.depositInr } : {}),
     moveInDate: Timestamp.fromMillis(input.moveInMs),
@@ -85,6 +140,22 @@ export async function createResident(propertyId: string, ownerUid: string, input
     residentName: input.name,
     createdAt: serverTimestamp(),
   });
+  if (input.link) {
+    const { tenantUid, tenantName } = input.link;
+    // Approve the request and make the tenant a member (checked in from their move-in date), together
+    // with the resident and the bed claim above: all of it succeeds or none of it does.
+    batch.update(doc(db, 'properties', propertyId, 'stayRequests', tenantUid), { status: 'approved', updatedAt: serverTimestamp() });
+    batch.set(doc(db, 'properties', propertyId, 'members', tenantUid), {
+      tenantUid,
+      propertyId,
+      ownerUid,
+      displayName: tenantName,
+      status: 'active',
+      source: 'stay-request',
+      checkInAt: Timestamp.fromMillis(input.moveInMs),
+      joinedAt: serverTimestamp(),
+    });
+  }
   try {
     await batch.commit();
   } catch (error) {
@@ -109,6 +180,8 @@ export type ResidentDetail = {
   roomId: string | null;
   bedId: string | null;
   moveInMs: number | null;
+  /** The monthly rent of the bed, fixed when the bed was assigned. */
+  rentInr: number | null;
 };
 
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
@@ -135,6 +208,7 @@ export async function fetchResidentDetail(propertyId: string, residentId: string
       roomId: str(d.roomId),
       bedId: str(d.bedId),
       moveInMs: typeof moved?.toMillis === 'function' ? moved.toMillis() : null,
+      rentInr: typeof d.rentInr === 'number' && d.rentInr > 0 ? d.rentInr : null,
     };
   } catch (error) {
     throw toRequestError(error);

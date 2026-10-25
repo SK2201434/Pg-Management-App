@@ -5,10 +5,10 @@ import {
   doc,
   getDoc,
   getDocs,
+  increment,
   query,
   serverTimestamp,
   setDoc,
-  updateDoc,
   where,
   writeBatch,
 } from 'firebase/firestore';
@@ -18,6 +18,7 @@ import {
   generateInviteCode,
   isInviteCode,
   parsePendingInvite,
+  REFERRAL_CREDITS,
   type PendingInvite,
   type ReferralRecord,
 } from '@/features/referral/inviteModel';
@@ -138,19 +139,32 @@ export async function recordInviteAttribution(referredUid: string): Promise<void
   }
 }
 
+/** Id of one of the owner's fully set up properties (drafts do not count), or null. */
+async function findReadyPropertyId(uid: string): Promise<string | null> {
+  const snap = await getDocs(query(collection(getFirestoreDb(), 'properties'), where('ownerUid', '==', uid)));
+  return snap.docs.find((d) => d.data().setupStatus !== 'draft')?.id ?? null;
+}
+
 /**
- * Marks this account's referral `completed` once it has a profile. Safe to call on every launch:
- * it does nothing unless a `registered` record exists, and the rules only allow the transition for
- * a verified email plus an active profile with a display name. Failures are ignored and retried
- * next time.
+ * Marks this account's referral `completed` once its owner has registered a property, and in the
+ * same batch credits the referrer (`users/{referrer}.credits`, REFERRAL_CREDITS). Pass `propertyId`
+ * when a property has just been finished; otherwise a ready property is looked up (the launch retry).
+ * Does nothing unless a `registered` record exists. The rules require the property to belong to this
+ * account and be ready, and a record completes only once, so credits are paid once. Never throws;
+ * a failure is retried on the next launch.
  */
-export async function completeInviteReferral(uid: string): Promise<void> {
+export async function completeInviteReferral(uid: string, propertyId?: string): Promise<void> {
   try {
-    const ref = doc(getFirestoreDb(), 'inviteReferrals', uid);
+    const db = getFirestoreDb();
+    const ref = doc(db, 'inviteReferrals', uid);
     const snap = await getDoc(ref);
-    if (snap.exists() && snap.data().status === 'registered') {
-      await updateDoc(ref, { status: 'completed', completedAt: serverTimestamp() });
-    }
+    if (!snap.exists() || snap.data().status !== 'registered') return;
+    const readyId = propertyId ?? (await findReadyPropertyId(uid));
+    if (readyId === null) return;
+    const batch = writeBatch(db);
+    batch.update(ref, { status: 'completed', completedAt: serverTimestamp(), propertyId: readyId });
+    batch.update(doc(db, 'users', snap.data().referrerUid as string), { credits: increment(REFERRAL_CREDITS) });
+    await batch.commit();
   } catch {
     // Retried on the next launch.
   }

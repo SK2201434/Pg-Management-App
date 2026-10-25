@@ -3,7 +3,7 @@
 //
 // Firestore shape (see firestore.rules):
 //   properties/{pid}                         ownerUid, name, location, city, state, postalCode,
-//                                            contactName, contactPhone, description?, geo? (GeoPoint), photos?[] and roomPhotos?[] (<= 4 each),
+//                                            contactName, contactPhone, description?, amenities[] (keys of AMENITIES), geo? (GeoPoint), photos?[] and roomPhotos?[] (<= 4 each),
 //                                            setupStatus ('draft' | 'ready'), createdAt, updatedAt
 //   properties/{pid}/rooms/{rid}             ownerUid, propertyId, roomNumber, floor?, sharing
 //                                            (= number of beds), ac, rentPerBedInr? (whole rupees),
@@ -14,6 +14,24 @@
 
 export const BedStatuses = { Available: 'available', Unavailable: 'unavailable' } as const;
 export type BedStatus = (typeof BedStatuses)[keyof typeof BedStatuses];
+
+/** Amenities an owner can tick for a property. The stored value is the `key`; unknown keys are ignored. */
+export const AMENITIES = [
+  { key: 'wifi', label: 'Wi-Fi' },
+  { key: 'hot-water', label: 'Hot water' },
+  { key: 'drinking-water', label: 'Drinking water' },
+  { key: 'meals', label: 'Meals' },
+  { key: 'laundry', label: 'Laundry' },
+  { key: 'housekeeping', label: 'Housekeeping' },
+  { key: 'parking', label: 'Parking' },
+  { key: 'power-backup', label: 'Power backup' },
+  { key: 'cctv', label: 'CCTV' },
+  { key: 'tv-lounge', label: 'TV / lounge' },
+  { key: 'refrigerator', label: 'Refrigerator' },
+  { key: 'lift', label: 'Lift' },
+] as const;
+
+export const amenityLabel = (key: string): string | null => AMENITIES.find((a) => a.key === key)?.label ?? null;
 
 export const MAX_FLOORS = 30;
 export const MAX_SHARING = 12;
@@ -64,6 +82,8 @@ export type PropertyForm = {
   description: string;
   contactName: string;
   contactPhone: string;
+  /** Keys from AMENITIES. */
+  amenities: string[];
   photos: PhotoDraft[];
   /** The property photo chosen as its display image (`uri`); the first photo when unset. */
   coverUri: string | null;
@@ -88,6 +108,7 @@ export const emptyForm = (): PropertyForm => ({
   description: '',
   contactName: '',
   contactPhone: '',
+  amenities: [],
   photos: [],
   roomPhotos: [],
   coverUri: null,

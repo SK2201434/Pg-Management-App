@@ -1,3 +1,4 @@
+import FontAwesome from '@expo/vector-icons/FontAwesome';
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router, Stack, useLocalSearchParams } from 'expo-router';
 import { useMemo, useState, type ComponentProps } from 'react';
@@ -20,6 +21,13 @@ import { PropertyGate } from '@/features/rent/PropertyGate';
 import { buildLedger, formatDate, formatInr, formatPeriod, PAYMENT_METHODS } from '@/features/rent/rentModel';
 import { StatusBadge } from '@/features/rent/rentUi';
 import { usePayments, useRentCharges } from '@/features/rent/useRentQueries';
+import { ChangeStaySheet } from '@/features/stayChange/ChangeStaySheet';
+import { canChangeStay, freeBedChoices } from '@/features/stayChange/stayChangeModel';
+import { useStayChange, useStayChangeActions } from '@/features/stayChange/useStayChange';
+import { RemindDialog } from '@/features/rent/RemindDialog';
+import { buildRentReminder, nextReminderOpensMs, withMessage } from '@/features/rent/reminderModel';
+import { AlreadyRemindedError } from '@/features/rent/reminderService';
+import { useSendRentReminder } from '@/features/rent/useRentReminders';
 import { latestRow, mailUrl, pickPayableCharge, telUrl, totalOutstanding, whatsAppUrl } from '@/features/tenants/tenantDetailsModel';
 import { EditTenantSheet } from '@/features/tenants/EditTenantSheet';
 import { useResidentDetail, useUpdateResident } from '@/features/tenants/useAddResident';
@@ -54,10 +62,16 @@ function Content({ property, tenantId }: { property: PropertyDetail; tenantId: s
   const [menu, setMenu] = useState(false);
   const [editing, setEditing] = useState(false);
   const [banner, setBanner] = useState<string | null>(null);
+  const [remindOpen, setRemindOpen] = useState(false);
+  const sendReminder = useSendRentReminder(property.id);
 
   const tenant = tenants.data?.find((t) => t.tenantUid === tenantId) ?? null;
   const resident = useResidentDetail(property.id, tenantId, tenant?.source === 'added');
   const update = useUpdateResident(property.id, tenantId, resident.data?.bedId ?? null);
+  // Changing the room or bed is a proposal the tenant must accept (they need an app account to answer).
+  const [stayOpen, setStayOpen] = useState(false);
+  const stayChange = useStayChange(property.id, tenant?.accountUid);
+  const stayActions = useStayChangeActions(property.id, tenant?.accountUid);
 
   const ledger = useMemo(() => {
     if (!charges.data || !payments.data || !tenant) return null;
@@ -119,9 +133,47 @@ function Content({ property, tenantId }: { property: PropertyDetail; tenantId: s
   const phone = detail?.phone ?? null;
   const payable = ledger ? pickPayableCharge(ledger) : null;
   const rentReady = ledger !== null;
-  const canEdit = added && detail !== null && detail.bedId !== null && detail.phone !== null;
+  // A tenant with an app account (added from a stay request) has a verified profile the owner cannot edit.
+  const canEdit = added && !tenant?.accountUid && detail !== null && detail.bedId !== null && detail.phone !== null;
   const outstanding = ledger && ledger.length > 0 ? totalOutstanding(ledger) : null;
   const latest = ledger ? latestRow(ledger) : null;
+
+  // The rent reminder: the month and the amount still payable, in a polite message.
+  // The bed's rent is due on the move-in day each month, and reminding opens a week before.
+  const schedule = active && detail?.moveInMs != null && detail.rentInr !== null ? { moveInMs: detail.moveInMs, rentInr: detail.rentInr } : null;
+  const reminder = ledger && tenant ? buildRentReminder({ tenantName: tenant.name, propertyName: property.name, rows: ledger, nowMs: now, schedule }) : null;
+  const opensMs = ledger ? nextReminderOpensMs({ rows: ledger, schedule, nowMs: now }) : null;
+  const remindError = sendReminder.isError
+    ? sendReminder.error instanceof AlreadyRemindedError
+      ? 'You already sent this tenant a reminder for this month today.'
+      : 'Could not send the reminder. Check your connection and try again.'
+    : null;
+  const notify = () => {
+    if (!reminder || !tenant?.accountUid) return;
+    sendReminder.mutate(
+      { tenantUid: tenant.accountUid, reminder },
+      {
+        onSuccess: () => {
+          setRemindOpen(false);
+          setBanner(`Reminder sent to ${tenant.name}.`);
+        },
+      },
+    );
+  };
+
+  const canChange = canChangeStay(tenant) && detail !== null && detail.bedId !== null;
+  const stayError = stayActions.propose.isError
+    ? 'Could not send the proposal. That bed may have just been taken; pick another and try again.'
+    : stayActions.apply.isError
+      ? 'Could not apply the change. The bed may have been taken, or the tenant has not accepted yet.'
+      : stayActions.cancel.isError
+        ? 'Could not cancel the proposal. Try again.'
+        : null;
+  const resetStayErrors = () => {
+    stayActions.propose.reset();
+    stayActions.cancel.reset();
+    stayActions.apply.reset();
+  };
 
   const open = async (url: string | null) => {
     if (!url) return;
@@ -139,6 +191,40 @@ function Content({ property, tenantId }: { property: PropertyDetail; tenantId: s
   return (
     <View style={styles.screen}>
       {header}
+      <ChangeStaySheet
+        visible={stayOpen}
+        tenantName={tenant.name}
+        current={{ roomNumber: tenant.roomNumber ?? '', bedLabel: tenant.bedLabel }}
+        choices={freeBedChoices(rooms.data ?? [], detail?.bedId ?? null)}
+        existing={stayChange.data ?? null}
+        busy={stayActions.propose.isPending || stayActions.cancel.isPending || stayActions.apply.isPending}
+        error={stayError}
+        onPropose={(target) =>
+          stayActions.propose.mutate(
+            { residentId: tenant.tenantUid, from: { roomNumber: tenant.roomNumber ?? '', bedLabel: tenant.bedLabel }, target },
+            { onSuccess: () => setBanner(`Sent to ${tenant.name}. Their room changes only after they accept.`) },
+          )
+        }
+        onCancel={() => stayActions.cancel.mutate(undefined)}
+        onApply={() => stayChange.data && stayActions.apply.mutate(stayChange.data, { onSuccess: () => { setStayOpen(false); setBanner(`${tenant.name} has been moved to the new room and bed.`); } })}
+        onClose={() => setStayOpen(false)}
+      />
+      <RemindDialog
+        visible={remindOpen}
+        tenantName={tenant.name}
+        reminder={reminder}
+        canNotify={!!tenant.accountUid}
+        busy={sendReminder.isPending}
+        error={remindError}
+        callUrl={telUrl(phone)}
+        whatsAppUrl={reminder && whatsAppUrl(phone) ? withMessage(whatsAppUrl(phone) as string, reminder.message) : whatsAppUrl(phone)}
+        onNotify={notify}
+        onOpen={(url) => {
+          setRemindOpen(false);
+          void open(url);
+        }}
+        onClose={() => setRemindOpen(false)}
+      />
       <AppScrollView
         style={styles.flex}
         contentContainerStyle={styles.content}
@@ -176,9 +262,9 @@ function Content({ property, tenantId }: { property: PropertyDetail; tenantId: s
           </View>
           {telUrl(phone) || mailUrl(detail?.email ?? null) ? (
             <View style={styles.contacts}>
-              {telUrl(phone) ? <Contact icon="call" label="Call" onPress={() => open(telUrl(phone))} /> : null}
-              {whatsAppUrl(phone) ? <Contact icon="chat" label="WhatsApp" onPress={() => open(whatsAppUrl(phone))} /> : null}
-              {mailUrl(detail?.email ?? null) ? <Contact icon="mail" label="Email" onPress={() => open(mailUrl(detail?.email ?? null))} /> : null}
+              {telUrl(phone) ? <Contact kind="call" label="Call" onPress={() => open(telUrl(phone))} /> : null}
+              {whatsAppUrl(phone) ? <Contact kind="whatsapp" label="Message on WhatsApp" onPress={() => open(whatsAppUrl(phone))} /> : null}
+              {mailUrl(detail?.email ?? null) ? <Contact kind="mail" label="Email" onPress={() => open(mailUrl(detail?.email ?? null))} /> : null}
             </View>
           ) : (
             <Text style={styles.small}>{added ? 'No contact details stored.' : 'This tenant joined with an invite code; no phone or email is stored.'}</Text>
@@ -217,8 +303,25 @@ function Content({ property, tenantId }: { property: PropertyDetail; tenantId: s
         </View>
 
         <View style={styles.actions}>
-          <Action icon="notifications-active" label="Remind" disabled />
+          <Action
+            icon="notifications-active"
+            label="Remind"
+            disabled={!reminder}
+            onPress={() => {
+              sendReminder.reset();
+              setRemindOpen(true);
+            }}
+          />
           <Action icon="receipt-long" label="Rent Ledger" onPress={openLedger} />
+          <Action
+            icon="swap-horiz"
+            label="Change stay"
+            disabled={!canChange}
+            onPress={() => {
+              resetStayErrors();
+              setStayOpen(true);
+            }}
+          />
           <Action
             icon="edit-note"
             label="Edit Tenant"
@@ -229,9 +332,12 @@ function Content({ property, tenantId }: { property: PropertyDetail; tenantId: s
             }}
           />
         </View>
-        <Text style={styles.footnote}>
-          {canEdit ? 'Reminders are not available yet.' : added ? 'Reminders are not available yet. Loading the tenant’s details…' : 'Reminders are not available yet. Tenants who joined with an invite code manage their own details.'}
-        </Text>
+        {added && hasStay && !canChange ? <Text style={styles.footnote}>Changing the room needs the tenant to have an app account with a verified email, so they can accept the change.</Text> : null}
+        {!reminder ? (
+          <Text style={styles.footnote}>
+            {!rentReady ? 'Loading rent records…' : opensMs !== null ? `Rent reminders open on ${formatDate(opensMs)}, a week before the due date.` : 'Nothing is due for this tenant, so there is nothing to remind.'}
+          </Text>
+        ) : null}
 
         <View style={styles.card}>
           <Text style={styles.sectionLabel}>Stay details</Text>
@@ -368,11 +474,17 @@ function editErrorMessage(error: unknown): string {
   return `The changes were not saved. ${getPropertyErrorMessage(error)}`;
 }
 
-function Contact({ icon, label, onPress }: { icon: IconName; label: string; onPress: () => void }) {
+// Round icon buttons, the same as on My Stay and the property page: phone and email in the app's
+// accent colour, WhatsApp in its green.
+function Contact({ kind, label, onPress }: { kind: 'call' | 'whatsapp' | 'mail'; label: string; onPress: () => void }) {
   return (
-    <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={onPress} style={({ pressed }) => [styles.contact, pressed && styles.pressed]}>
-      <MaterialIcons name={icon} size={16} color={BrandColors.accent} />
-      <Text style={styles.contactText}>{label}</Text>
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      hitSlop={6}
+      onPress={onPress}
+      style={({ pressed }) => [styles.contact, kind === 'whatsapp' ? styles.contactWhatsApp : styles.contactAccent, pressed && styles.pressed]}>
+      {kind === 'whatsapp' ? <FontAwesome name="whatsapp" size={22} color="#FFFFFF" /> : <MaterialIcons name={kind === 'call' ? 'call' : 'mail'} size={20} color="#FFFFFF" />}
     </Pressable>
   );
 }
@@ -427,9 +539,10 @@ const styles = StyleSheet.create({
   badgeOn: { backgroundColor: '#E8F0EE' },
   badgeOff: { backgroundColor: BrandColors.canvas },
   badgeText: { fontSize: 11, fontWeight: '700', color: BrandColors.textSecondary },
-  contacts: { flexDirection: 'row', gap: 8 },
-  contact: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, backgroundColor: BrandColors.canvas },
-  contactText: { fontSize: 12, fontWeight: '700', color: BrandColors.textPrimary },
+  contacts: { flexDirection: 'row', gap: 12 },
+  contact: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+  contactAccent: { backgroundColor: BrandColors.accent },
+  contactWhatsApp: { backgroundColor: '#25D366' },
   sectionLabel: { fontSize: 10, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', color: BrandColors.textSecondary },
   tile: { gap: 2, padding: 12, borderRadius: 12, backgroundColor: BrandColors.canvas },
   tileLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase', color: BrandColors.textSecondary },

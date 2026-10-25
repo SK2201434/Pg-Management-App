@@ -11,6 +11,8 @@ export type AccountProfile = {
   phone: string | null;
   gender: 'male' | 'female' | null;
   status: string | null;
+  /** Referral credits earned; 0 until the first completed referral. */
+  credits: number;
   createdMs: number | null;
 };
 
@@ -26,6 +28,7 @@ export async function fetchAccountProfile(uid: string): Promise<AccountProfile> 
     phone: text(data.phone),
     gender: data.gender === 'male' || data.gender === 'female' ? data.gender : null,
     status: text(data.status),
+    credits: typeof data.credits === 'number' && data.credits > 0 ? data.credits : 0,
     createdMs: typeof created?.toMillis === 'function' ? created.toMillis() : null,
   };
 }

@@ -153,8 +153,8 @@ function ChooseType({ onChoose }: { onChoose: (intent: RegistrationIntent) => vo
       ))}
       {type === AccountRoles.Tenant ? (
         <TextInput
-          accessibilityLabel="Referral code (optional)"
-          placeholder="Referral code (optional)"
+          accessibilityLabel="Property ID or referral code (optional)"
+          placeholder="Property ID or referral code (optional)"
           placeholderTextColor={BrandColors.textSecondary}
           autoCapitalize="none"
           autoCorrect={false}

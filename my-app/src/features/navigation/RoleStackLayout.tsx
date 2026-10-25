@@ -1,8 +1,11 @@
 import { Redirect, router, Stack, type Href } from 'expo-router';
 
-import type { AccountRole } from '@/constants/account';
+import { AccountRoles, type AccountRole } from '@/constants/account';
 import { useVerifiedRole } from '@/features/auth/useUserProfile';
 import { AppTopBar } from '@/features/navigation/AppTopBar';
+import { TenantSearchButton } from '@/features/discovery/TenantSearch';
+import { TenantTopBar } from '@/features/discovery/TenantTopBar';
+import { TenantNotificationBell } from '@/features/tenantNotifications/TenantNotificationBell';
 import { MainTopBarActions } from '@/features/navigation/MainTopBarActions';
 import { HOME_HREF_BY_ROLE, NOTIFICATIONS_HREF_BY_ROLE, PROFILE_HREF_BY_ROLE } from '@/features/navigation/navigationConfig';
 
@@ -27,11 +30,13 @@ export function RoleStackLayout({ role, backFallback }: { role: AccountRole; bac
     else router.replace(backFallback ?? HOME_HREF_BY_ROLE[role]);
   };
 
+  const TopBar = role === AccountRoles.Tenant ? TenantTopBar : AppTopBar;
+
   return (
     <Stack
       screenOptions={{
         header: ({ options, route }) => (
-          <AppTopBar
+          <TopBar
             title={options.title ?? 'HOSTELL'}
             propertyName={
               // A screen can set its second line (e.g. a property name it fetched) as a string `headerTitle`.
@@ -43,7 +48,7 @@ export function RoleStackLayout({ role, backFallback }: { role: AccountRole; bac
             actions={
               <>
                 {options.headerRight?.({ canGoBack: true })}
-                <MainTopBarActions profileHref={PROFILE_HREF_BY_ROLE[role]} notificationsHref={NOTIFICATIONS_HREF_BY_ROLE[role]} />
+                <MainTopBarActions profileHref={PROFILE_HREF_BY_ROLE[role]} notificationsHref={NOTIFICATIONS_HREF_BY_ROLE[role]} bell={role === AccountRoles.Tenant ? <><TenantSearchButton /><TenantNotificationBell href={NOTIFICATIONS_HREF_BY_ROLE[role]} /></> : undefined} />
               </>
             }
           />

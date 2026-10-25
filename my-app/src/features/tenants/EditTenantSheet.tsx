@@ -111,7 +111,7 @@ export function EditTenantSheet({ initial, stay, busy, submitError, onSave, onCl
               )}
               <View style={styles.note}>
                 <MaterialIcons name="info-outline" size={16} color={BrandColors.accent} />
-                <Text style={styles.noteText}>To change room or bed allocation, use Change Bed from Tenant Details. It is not available yet.</Text>
+                <Text style={styles.noteText}>To change the room or bed, use Change stay on Tenant Details. The tenant has to accept the change first.</Text>
               </View>
             </View>
             {submitError ? <Text style={styles.error}>{submitError}</Text> : null}

@@ -18,7 +18,7 @@ import type { Property, PropertyDetail, PropertyStatus, PropertyTenant, Property
 /** A failed property request, keeping the Firebase `code` (e.g. `permission-denied`). */
 export class PropertyRequestError extends Error {
   constructor(
-    readonly kind: 'permission-denied' | 'not-found' | 'unavailable' | 'unknown',
+    readonly kind: 'permission-denied' | 'not-found' | 'unavailable' | 'duplicate-location' | 'unknown',
     readonly code: string | undefined,
     options?: { cause?: unknown },
   ) {
@@ -40,6 +40,13 @@ export function toRequestError(error: unknown): PropertyRequestError {
 }
 
 /** `photos[0].url` when the property has a usable first photo. */
+/** Every usable https photo URL, in order. */
+function allPhotoUrls(photos: unknown): string[] {
+  return Array.isArray(photos)
+    ? (photos as { url?: unknown }[]).flatMap((p) => (typeof p?.url === 'string' && p.url.startsWith('https://') ? [p.url] : []))
+    : [];
+}
+
 function firstPhotoUrl(photos: unknown): string | null {
   const first = Array.isArray(photos) ? (photos[0] as { url?: unknown } | undefined) : undefined;
   return typeof first?.url === 'string' && first.url !== '' ? first.url : null;
@@ -104,6 +111,7 @@ export async function fetchPropertyDetail(propertyId: string, ownerUid: string):
     status: data.status === 'inactive' ? 'inactive' : 'active',
     hasGeo: data.geo instanceof GeoPoint,
     coverUrl: firstPhotoUrl(data.photos),
+    photoUrls: [...allPhotoUrls(data.photos), ...allPhotoUrls(data.roomPhotos)],
     description: text(data.description),
     city: text(data.city),
     state: text(data.state),
@@ -183,8 +191,11 @@ export async function fetchPropertyTenants(propertyId: string, ownerUid: string)
     const snapshot = await getDocs(
       query(collection(getFirestoreDb(), 'properties', propertyId, 'members'), where('ownerUid', '==', ownerUid)),
     );
+    const residents = await fetchResidents(propertyId, ownerUid);
+    // A tenant added from a stay request is both a member and a resident: list the resident (it has the bed).
+    const linked = new Set(residents.flatMap((r) => (r.linkedTenantUid ? [r.linkedTenantUid] : [])));
     const joined = snapshot.docs
-      .filter((d) => d.data().propertyId === propertyId)
+      .filter((d) => d.data().propertyId === propertyId && !linked.has(d.id))
       .map((d): PropertyTenant => {
         const data = d.data() as Record<string, unknown>;
         const at = data.joinedAt as { toMillis?: () => number } | undefined;
@@ -194,27 +205,28 @@ export async function fetchPropertyTenants(propertyId: string, ownerUid: string)
           status: data.status === 'active' ? 'active' : 'inactive',
           joinedAtMs: typeof at?.toMillis === 'function' ? at.toMillis() : null,
           source: 'joined',
+          accountUid: d.id,
           roomNumber: null,
           bedLabel: null,
           sharing: null,
           rentInr: null,
         };
       });
-    return [...joined, ...(await fetchResidents(propertyId, ownerUid))].sort((a, b) => a.name.localeCompare(b.name));
+    return [...joined, ...residents].sort((a, b) => a.name.localeCompare(b.name));
   } catch (error) {
     throw toRequestError(error);
   }
 }
 
 /** Tenants the owner added by hand (`residents`). Unreadable (rules not deployed yet) means none. */
-async function fetchResidents(propertyId: string, ownerUid: string): Promise<PropertyTenant[]> {
+async function fetchResidents(propertyId: string, ownerUid: string): Promise<(PropertyTenant & { linkedTenantUid?: string })[]> {
   try {
     const snap = await getDocs(
       query(collection(getFirestoreDb(), 'properties', propertyId, 'residents'), where('ownerUid', '==', ownerUid)),
     );
     return snap.docs
       .filter((d) => d.data().propertyId === propertyId)
-      .map((d): PropertyTenant => {
+      .map((d): PropertyTenant & { linkedTenantUid?: string } => {
         const data = d.data() as Record<string, unknown>;
         const moved = data.moveInDate as { toMillis?: () => number } | undefined;
         return {
@@ -227,6 +239,7 @@ async function fetchResidents(propertyId: string, ownerUid: string): Promise<Pro
           bedLabel: text(data.bedLabel),
           sharing: typeof data.sharing === 'number' ? data.sharing : null,
           rentInr: typeof data.rentInr === 'number' ? data.rentInr : null,
+          ...(typeof data.tenantUid === 'string' ? { linkedTenantUid: data.tenantUid, accountUid: data.tenantUid } : {}),
         };
       });
   } catch {
@@ -284,6 +297,9 @@ export async function setPropertyGeo(
   }
 }
 
+/** True when the save failed because another property already holds this location. */
+export const isDuplicateLocationError = (error: unknown): boolean => error instanceof PropertyRequestError && error.kind === 'duplicate-location';
+
 /** User-facing text for a failed property request. */
 export function getPropertyErrorMessage(error: unknown): string {
   const kind = error instanceof PropertyRequestError ? error.kind : 'unknown';
@@ -292,6 +308,8 @@ export function getPropertyErrorMessage(error: unknown): string {
       return 'HOSTELL is not allowed to access your properties. Sign out and in again; if it continues, contact support.';
     case 'not-found':
       return 'This property no longer exists.';
+    case 'duplicate-location':
+      return 'A property already exists at this location. Check the address, or the location you captured, and try again.';
     case 'unavailable':
       return 'Could not reach the database. Check your connection and try again.';
     default:

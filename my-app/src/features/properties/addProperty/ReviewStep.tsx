@@ -4,6 +4,7 @@ import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { BrandColors } from '@/constants/theme';
 import { Card, formStyles } from '@/features/properties/addProperty/formParts';
 import type { StepProps } from '@/features/properties/addProperty/stepTypes';
+import { amenityLabel } from '@/features/properties/propertySetup';
 import {
   bedLabelsFor,
   coverPhoto,
@@ -100,6 +101,7 @@ export function ReviewStep({ form, update, onSetRent }: ReviewStepProps) {
   const s = summarize(form);
   const cover = coverPhoto(form);
   const place = [form.location.trim(), form.city.trim(), form.state.trim(), form.postalCode.trim()].filter(Boolean).join(', ');
+  const amenities = form.amenities.flatMap((k) => amenityLabel(k) ?? []);
   const contact = [form.contactName.trim(), form.contactPhone.trim()].filter(Boolean).join(' · ');
   return (
     <View style={{ gap: 16 }}>
@@ -108,6 +110,7 @@ export function ReviewStep({ form, update, onSetRent }: ReviewStepProps) {
         <Row label="Name" value={form.name.trim() || '—'} />
         <Row label="Address" value={place || '—'} />
         {contact ? <Row label="Contact" value={contact} /> : null}
+        <Row label="Amenities" value={amenities.length > 0 ? amenities.join(', ') : 'None selected'} />
         <Row label="Property photos" value={s.photos === 0 ? 'None selected' : `${s.photos} selected`} />
         {form.photos.length > 0 ? (
           <View style={styles.coverBlock}>

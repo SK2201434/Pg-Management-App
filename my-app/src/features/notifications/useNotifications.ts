@@ -3,8 +3,12 @@ import { useMemo } from 'react';
 
 import { selectOwner } from '@/features/auth/ownerAuthSelectors';
 import { useOwnerPropertyData } from '@/features/dashboard/useOwnerPropertyData';
-import { buildNotifications, unreadIds, type OwnerNotification } from '@/features/notifications/notificationsModel';
+import { useOwnerTenantRequests } from '@/features/requests/ownerRequestsLive';
+import { useOwnerReviewEvents } from '@/features/reviews/ownerReviewsLive';
+import { buildNotifications, buildReviewNotifications, buildTenantRequestNotifications, unreadIds, type OwnerNotification } from '@/features/notifications/notificationsModel';
 import { fetchReadIds, saveReadIds } from '@/features/notifications/notificationService';
+import { buildStayRequestNotifications } from '@/features/stayRequests/stayRequestsModel';
+import { useStayRequests } from '@/features/stayRequests/stayRequestsLive';
 import { useAppSelector } from '@/store/hooks';
 
 // The key carries the uid, so one account's read marks are never shown for another.
@@ -21,6 +25,9 @@ export function useNotifications() {
   const uid = useAppSelector(selectOwner)?.uid;
   const queryClient = useQueryClient();
   const source = useOwnerPropertyData();
+  const stayRequests = useStayRequests();
+  const tenantRequests = useOwnerTenantRequests();
+  const reviewEvents = useOwnerReviewEvents();
   const reads = useQuery({ queryKey: readsKey(uid), queryFn: () => fetchReadIds(uid as string), enabled: uid !== undefined });
 
   const indexes = source.list.map((_, i) => i);
@@ -31,8 +38,16 @@ export function useNotifications() {
     const built = buildNotifications(source.data, source.now);
     if (built === null) return null;
     const read = new Set(reads.data ?? []);
-    return built.map((n) => ({ ...n, read: read.has(n.id) }));
-  }, [source.owned.isSuccess, rentState, source.data, source.now, reads.data, reads.isPending]);
+    // Tenants' stay requests arrive live and sit among the rent notifications, newest first.
+    const names = new Map(source.data.flatMap((p) => (p.tenants ?? []).map((t) => [t.tenantUid, t.name] as const)));
+    const all = [
+      ...built,
+      ...buildStayRequestNotifications(stayRequests.items, source.now),
+      ...buildTenantRequestNotifications(tenantRequests, names, source.now),
+      ...buildReviewNotifications(reviewEvents, source.now),
+    ].sort((a, b) => b.atMs - a.atMs || a.id.localeCompare(b.id));
+    return all.map((n) => ({ ...n, read: read.has(n.id) }));
+  }, [source.owned.isSuccess, rentState, source.data, source.now, reads.data, reads.isPending, stayRequests.items, tenantRequests, reviewEvents]);
 
   const markRead = useMutation<boolean, Error, string[]>({
     mutationFn: (ids) => saveReadIds(uid as string, ids),

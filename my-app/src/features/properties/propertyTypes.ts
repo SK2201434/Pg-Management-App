@@ -27,6 +27,8 @@ export type PortfolioOccupancy = { totalBeds: number; occupiedBeds: number };
 /** A property's full document, for the Property Details screen. Optional fields are `null` when absent. */
 export type PropertyDetail = Property & {
   description: string | null;
+  /** Every photo saved on the property (property photos first, then room photos). */
+  photoUrls: string[];
   city: string | null;
   state: string | null;
   postalCode: string | null;
@@ -66,4 +68,6 @@ export type PropertyTenant = {
   bedLabel: string | null;
   sharing: number | null;
   rentInr: number | null;
+  /** The tenant's own account id, when they have one (a joined tenant, or an added one linked to a stay request). */
+  accountUid?: string;
 };

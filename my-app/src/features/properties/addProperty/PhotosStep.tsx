@@ -56,6 +56,7 @@ export function PhotosStep({ form, update }: StepProps) {
         <Text style={formStyles.note}>
           {hint} ({photos.length}/{limit})
         </Text>
+        {photos.length >= limit ? <Text style={formStyles.note}>Limit reached. Tap ✕ on a photo to remove it, then add another.</Text> : null}
         {photos.length > 0 ? (
           <View style={styles.grid}>
             {photos.map((photo, index) => (
@@ -64,7 +65,7 @@ export function PhotosStep({ form, update }: StepProps) {
                 <Pressable
                   accessibilityRole="button"
                   accessibilityLabel={`Remove ${title.toLowerCase()} ${index + 1}`}
-                  hitSlop={6}
+                  hitSlop={10}
                   onPress={() => setPhotos(g, photos.filter((p) => p.uri !== photo.uri))}
                   style={styles.remove}>
                   <MaterialIcons name="close" size={16} color={BrandColors.surface} />
@@ -87,7 +88,7 @@ export function PhotosStep({ form, update }: StepProps) {
     <View style={{ gap: 16 }}>
       <Text style={formStyles.sectionTitle}>Photos</Text>
       <Text style={formStyles.note}>
-        Photos will be uploaded when you save.
+        Photos will be uploaded when you save. Up to {MAX_PHOTOS} property photos and {MAX_ROOM_PHOTOS} room photos, {MAX_PHOTOS + MAX_ROOM_PHOTOS} in total ({form.photos.length + form.roomPhotos.length}/{MAX_PHOTOS + MAX_ROOM_PHOTOS} added).
       </Text>
 
       {section('property')}
@@ -122,9 +123,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: 4,
     right: 4,
-    width: 26,
-    height: 26,
-    borderRadius: 13,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: BrandColors.textPrimary,

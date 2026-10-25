@@ -6,6 +6,7 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { AppButton } from '@/components/app-button';
 import { AppScrollView } from '@/components/app-scroll-view';
 import { useConfirm } from '@/components/confirm-dialog';
+import { APP_TAGLINE } from '@/constants/brand';
 import { BrandColors } from '@/constants/theme';
 import { getAuthErrorMessage } from '@/features/auth/authErrorMessage';
 import { HostellLogo } from '@/features/auth/HostellLogo';
@@ -132,6 +133,11 @@ export function OwnerMoreScreen() {
 
       <View style={styles.footer}>
         <HostellLogo />
+        <View style={styles.taglineRow}>
+          <View style={styles.taglineLine} />
+          <Text style={styles.tagline}>{APP_TAGLINE}</Text>
+          <View style={styles.taglineLine} />
+        </View>
       </View>
       {dialog}
     </AppScrollView>
@@ -179,7 +185,7 @@ function Row({ icon, title, subtitle, onPress, last }: { icon: IconName; title: 
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: BrandColors.canvas },
-  content: { padding: 16, gap: 16, paddingBottom: 32 },
+  content: { flexGrow: 1, padding: 16, gap: 16, paddingBottom: 32 },
   flex: { flex: 1, minWidth: 0 },
   muted: { fontSize: 12, color: BrandColors.textSecondary },
   pressed: { opacity: 0.85 },
@@ -212,5 +218,8 @@ const styles = StyleSheet.create({
   rowIcon: { width: 40, height: 40, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: BrandColors.canvas },
   rowTitle: { fontSize: 15, fontWeight: '700', color: BrandColors.textPrimary },
   error: { fontSize: 13, color: BrandColors.error },
-  footer: { alignItems: 'center', paddingVertical: 8 },
+  footer: { alignItems: 'center', justifyContent: 'flex-end', flexGrow: 1, paddingVertical: 8, gap: 8 },
+  taglineRow: { alignSelf: 'center', flexDirection: 'row', alignItems: 'center', gap: 8 },
+  taglineLine: { width: 40, height: 1, backgroundColor: BrandColors.border },
+  tagline: { fontSize: 12, fontWeight: '600', letterSpacing: 2, textTransform: 'uppercase', color: BrandColors.textSecondary },
 });

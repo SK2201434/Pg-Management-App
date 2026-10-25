@@ -29,13 +29,29 @@ export type AttentionRow = {
   propertyId: string;
   propertyName: string;
   tenantUid: string;
-  chargeId: string;
+  /** The recorded charge to pay against; null for rent that is coming due but has no charge recorded yet. */
+  chargeId: string | null;
   name: string;
   /** "Room 204 · Bed B" when the tenant was placed in a bed. */
   placement: string | null;
   remainingInr: number;
-  status: 'overdue' | 'due-today';
+  status: 'overdue' | 'due-today' | 'due-soon';
   daysOverdue: number;
+  /** The due date (start of day). */
+  dueMs: number;
+  period: string;
+};
+
+/** An unpaid balance due within the next week (not overdue yet). */
+export type UpcomingRow = {
+  key: string;
+  propertyId: string;
+  propertyName: string;
+  tenantUid: string;
+  name: string;
+  placement: string | null;
+  remainingInr: number;
+  dueMs: number;
   period: string;
 };
 

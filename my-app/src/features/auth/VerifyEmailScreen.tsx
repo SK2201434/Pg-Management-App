@@ -1,9 +1,7 @@
 import { useEffect, useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/app-button';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
 import { Spacing, BrandColors } from '@/constants/theme';
 import { checkEmailVerified, sendVerificationEmail } from '@/features/auth/emailVerification';
 import { getResendCooldownRemaining } from '@/features/auth/resendCooldown';
@@ -66,21 +64,21 @@ export function VerifyEmailScreen() {
   };
 
   return (
-    <ThemedView style={styles.container}>
-      <ThemedText type="subtitle" style={styles.text}>
+    <View style={styles.container}>
+      <Text accessibilityRole="header" style={[styles.text, styles.title]}>
         Verify your email
-      </ThemedText>
-      <ThemedText style={styles.text}>
+      </Text>
+      <Text style={[styles.text, styles.body]}>
         {sendFailed
           ? `We could not send a verification email to ${email}. Tap Resend to try again.`
           : `We sent a verification link to ${email}. Open it, then come back and tap “I’ve verified”.`}
-      </ThemedText>
+      </Text>
 
-      {message ? <ThemedText style={styles.text}>{message}</ThemedText> : null}
+      {message ? <Text style={[styles.text, styles.body]}>{message}</Text> : null}
       {error ? (
-        <ThemedText style={[styles.text, styles.error]} accessibilityRole="alert">
+        <Text style={[styles.text, styles.error]} accessibilityRole="alert">
           {error}
-        </ThemedText>
+        </Text>
       ) : null}
 
       <AppButton label="I’ve verified my email" loading={isChecking} onPress={check} />
@@ -100,18 +98,21 @@ export function VerifyEmailScreen() {
       />
 
       <SignOutButton />
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: BrandColors.background,
     alignItems: 'center',
     justifyContent: 'center',
     gap: Spacing.three,
     padding: Spacing.four,
   },
   text: { textAlign: 'center' },
+  title: { fontSize: 24, fontWeight: '800', color: BrandColors.textPrimary },
+  body: { fontSize: 15, lineHeight: 22, color: BrandColors.textSecondary },
   error: { color: BrandColors.error },
 });

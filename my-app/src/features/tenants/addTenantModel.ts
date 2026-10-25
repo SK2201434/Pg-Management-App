@@ -66,6 +66,15 @@ export function validateAddTenant(form: AddTenantForm, nowMs: number): AddTenant
   return e;
 }
 
+/** A partial move-in payment must be at least ₹1 and less than the monthly rent. Returns an error or null. */
+export function validatePartialCollected(raw: string, rentInr: number | null): string | null {
+  const amount = parseAmount(raw);
+  if (!raw.trim()) return 'Enter the amount collected.';
+  if (amount === null) return 'Enter a whole-rupee amount greater than zero.';
+  if (rentInr !== null && amount >= rentInr) return 'A partial payment must be less than the monthly rent. Choose “Full amount” instead.';
+  return null;
+}
+
 export type EditTenantForm = {
   name: string;
   phone: string;
@@ -147,4 +156,10 @@ export function toNewResident(form: AddTenantForm): NewResident {
     depositInr: form.deposit.trim() ? (parseDeposit(form.deposit) as number) : null,
     moveInMs: startOfDay(form.moveInMs),
   };
+}
+
+/** The name and 10-digit phone to prefill from a tenant's stay request (the last 10 digits of their number, if there are that many). */
+export function prefillFromRequest(name: string | null | undefined, phone: string | null | undefined): { name: string; phone: string } {
+  const digits = (phone ?? '').replace(/\D/g, '');
+  return { name: (name ?? '').trim().slice(0, 100), phone: digits.length >= 10 ? digits.slice(-10) : '' };
 }

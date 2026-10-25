@@ -103,6 +103,27 @@ export async function createRentCharge(
   }
 }
 
+/**
+ * The id of the rent charge for this tenant and month, creating it first when it does not exist yet.
+ * Rent that is only scheduled (due from the tenant's billing day, not recorded) has no charge, and a
+ * payment needs one. A charge is never changed once created, so an existing one is left as it is.
+ */
+export async function ensureRentCharge(
+  propertyId: string,
+  ownerUid: string,
+  input: { tenantUid: string; period: string; amountInr: number; dueMs: number },
+): Promise<string> {
+  const id = makeChargeId(input.tenantUid, input.period);
+  try {
+    // Listed, not read by id: the rules decide a single read from the stored document, which does not exist yet.
+    const existing = await fetchRentCharges(propertyId, ownerUid);
+    if (!existing.some((c) => c.id === id)) await createRentCharge(propertyId, ownerUid, input);
+  } catch (error) {
+    throw toRequestError(error);
+  }
+  return id;
+}
+
 export type PaymentInput = {
   /** Fixed for one form, so a retry of the same payment can never record it twice. */
   paymentId: string;

@@ -1,6 +1,6 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router, usePathname, type Href } from 'expo-router';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text } from 'react-native';
 
 import { BrandColors } from '@/constants/theme';
@@ -10,7 +10,7 @@ import { NotificationBell } from '@/features/notifications/NotificationBell';
 
 // Right-side actions of the top bar: the notifications bell (owner only; the tenant has no
 // notifications yet, so theirs is disabled) and the profile button.
-export function MainTopBarActions({ profileHref, notificationsHref }: { profileHref: Href; notificationsHref?: Href | null }) {
+export function MainTopBarActions({ profileHref, notificationsHref, bell }: { profileHref: Href; notificationsHref?: Href | null; bell?: ReactNode }) {
   const name = useProfileDisplayName();
   const initial = name?.charAt(0).toUpperCase();
   // The button turns sage green while pressed and while its own page is open.
@@ -23,7 +23,9 @@ export function MainTopBarActions({ profileHref, notificationsHref }: { profileH
   }, [held, onProfilePage, report]);
   return (
     <>
-      {notificationsHref ? (
+      {bell ? (
+        bell
+      ) : notificationsHref ? (
         <NotificationBell href={notificationsHref} />
       ) : (
         <TopBarIconButton icon="notifications-none" label="Notifications (not available yet)" disabled />

@@ -2,11 +2,11 @@ import {
   attentionRows,
   collectedThisMonth,
   computeOccupancy,
-  dueWithinDays,
-  outstandingRent,
+  dueSoonRows,
   propertiesOwing,
   rentRows,
   scopeProperties,
+  summarizeDueSoon,
 } from '@/features/dashboard/dashboardModel';
 import type { Metric, OwnerDashboardData } from '@/features/dashboard/dashboardTypes';
 import { useOwnerPropertyData } from '@/features/dashboard/useOwnerPropertyData';
@@ -48,14 +48,15 @@ export function useOwnerDashboard(propertyId: string | null): OwnerDashboardData
   return {
     properties: { status: 'ready', value: list.map((p) => ({ id: p.id, name: p.name })) },
     occupancy: wrap(bedState, () => computeOccupancy(scoped)),
-    outstandingRent: wrap(rentState, () => (rows ? outstandingRent(rows) : null)),
+    // Overdue + due today + due within 7 days: what the owner should be collecting now (the Needs Attention rows).
+    outstandingRent: wrap(rentState, () => (rows ? summarizeDueSoon(attentionRows(scoped, rows, now)) : null)),
     hasCharges: !!rows && rows.length > 0,
     monthlyCollection: wrap(rentState, () => {
       const amountInr = collectedThisMonth(scoped, now);
       return amountInr === null ? null : { amountInr };
     }),
-    upcomingRent: wrap(rentState, () => (rows ? dueWithinDays(rows, now) : null)),
-    needsAttention: wrap(rentState, () => (rows ? attentionRows(rows, now) : null)),
+    upcomingRent: wrap(rentState, () => (rows ? summarizeDueSoon(dueSoonRows(scoped, rows, now)) : null)),
+    needsAttention: wrap(rentState, () => (rows ? attentionRows(scoped, rows, now) : null)),
     owing: rows ? propertiesOwing(rows) : [],
   };
 }

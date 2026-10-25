@@ -13,7 +13,10 @@ export function generateInviteCode(random: () => number = Math.random): string {
   return code;
 }
 
-export const isInviteCode = (value: unknown): value is string =>
+/** Credits an owner earns for each completed referral (the referred owner registered a property). Firestore rules hard-code the same number. */
+export const REFERRAL_CREDITS = 100;
+
+export const isInviteCode =(value: unknown): value is string =>
   typeof value === 'string' && INVITE_CODE_PATTERN.test(value);
 
 /**

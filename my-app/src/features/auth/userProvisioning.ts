@@ -1,8 +1,9 @@
-import { doc, getDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
+import { doc, getDoc, serverTimestamp, setDoc, writeBatch, type Firestore } from 'firebase/firestore';
 
 import { AccountRoles, AccountStatuses } from '@/constants/account';
 import { getFirebaseAuth, getFirestoreDb } from '@/config/firebase';
 import type { RegistrationIntent } from '@/features/auth/registrationIntent';
+import { fetchMyStayRequest } from '@/features/discovery/discoveryService';
 
 export type ProvisioningFailureKind =
   | 'email-unverified'
@@ -59,6 +60,35 @@ function toProvisioningError(error: unknown, hadReferral: boolean): Provisioning
   return new ProvisioningError('unknown', code, { cause: error });
 }
 
+/**
+ * A tenant who entered a property's permanent Property ID (instead of a single-use referral code) asks to
+ * stay there: this sends the owner a pending stay request carrying the tenant's own profile details, so
+ * the owner can approve it and add them without retyping anything. Done once: an existing request is kept.
+ */
+async function requestToJoinProperty(
+  db: Firestore,
+  uid: string,
+  propertyId: string,
+  profile: { displayName: string; email: string; phone?: string; gender?: string },
+): Promise<void> {
+  const join = await getDoc(doc(db, 'propertyJoin', propertyId));
+  const ownerUid = join.data()?.ownerUid;
+  if (!join.exists() || typeof ownerUid !== 'string') throw new ProvisioningError('referral-invalid');
+  if ((await fetchMyStayRequest(propertyId, uid)) !== null) return;
+  await setDoc(doc(db, 'properties', propertyId, 'stayRequests', uid), {
+    tenantUid: uid,
+    ownerUid,
+    propertyId,
+    tenantName: profile.displayName,
+    ...(profile.phone ? { tenantPhone: profile.phone } : {}),
+    ...(profile.gender ? { tenantGender: profile.gender } : {}),
+    ...(profile.email ? { tenantEmail: profile.email } : {}),
+    status: 'pending',
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+}
+
 export type ProvisionInput = {
   uid: string;
   intent: RegistrationIntent;
@@ -85,7 +115,18 @@ export async function provisionProfile({ uid, intent, fallbackName }: ProvisionI
 
     const db = getFirestoreDb();
     const profileRef = doc(db, 'users', uid);
-    if ((await getDoc(profileRef)).exists()) return;
+    const existingProfile = await getDoc(profileRef);
+    // A Property ID's stay request is a second write after the profile, so a retry (the profile is
+    // already there) still has to send it.
+    const referralCode = intent.referralCode;
+    const isLegacyReferral = async () => referralCode !== undefined && (await getDoc(doc(db, 'referrals', referralCode))).exists();
+    if (existingProfile.exists()) {
+      if (referralCode !== undefined && intent.accountType === AccountRoles.Tenant && !(await isLegacyReferral())) {
+        const p = existingProfile.data();
+        await requestToJoinProperty(db, uid, referralCode, { displayName: p.displayName, email: p.email, phone: p.phone, gender: p.gender });
+      }
+      return;
+    }
 
     const email = user.email ?? '';
     const displayName =
@@ -114,6 +155,15 @@ export async function provisionProfile({ uid, intent, fallbackName }: ProvisionI
       }
       const referralRef = doc(db, 'referrals', code);
       const referral = await getDoc(referralRef);
+      if (!referral.exists()) {
+        // Not a single-use code: treat it as a Property ID. The profile is created plain, then the stay request.
+        // Check it exists first, so a mistyped ID does not leave a half-finished sign-up behind.
+        if (!(await getDoc(doc(db, 'propertyJoin', code))).exists()) throw new ProvisioningError('referral-invalid');
+        batch.set(profileRef, profile);
+        await batch.commit();
+        await requestToJoinProperty(db, uid, code, profile);
+        return;
+      }
       const rejection = classifyReferral(referral.exists() ? referral.data() : undefined);
       if (rejection !== null) throw new ProvisioningError(rejection);
       const { propertyId, createdBy } = referral.data() as { propertyId: string; createdBy: string };
@@ -148,7 +198,7 @@ export function getProvisioningErrorMessage(error: unknown): string {
     case 'email-unverified':
       return 'Your email is not verified yet. Open the link we emailed you, then try again.';
     case 'referral-invalid':
-      return 'That referral code is not valid. Check it and try again, or continue without one.';
+      return 'That referral code or Property ID is not valid. Check it and try again, or continue without one.';
     case 'referral-expired':
       return 'That referral code has expired. Ask the owner for a new one, or continue without one.';
     case 'referral-used':

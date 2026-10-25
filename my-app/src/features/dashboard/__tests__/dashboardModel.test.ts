@@ -100,12 +100,13 @@ describe('rent figures', () => {
 
 describe('needs attention', () => {
   const rows = rentRows([greenwood, sunrise], NOW) as NonNullable<ReturnType<typeof rentRows>>;
-  const att = attentionRows(rows, NOW);
-  it('lists overdue then due-today balances, longest overdue first, with placement', () => {
+  const att = attentionRows([greenwood, sunrise], rows, NOW);
+  it('lists overdue, then due-today, then rent due within 7 days, with placement', () => {
     expect(att.map((r) => [r.name, r.status])).toEqual([
       ['Aarav', 'overdue'],
       ['Aarav', 'overdue'],
       ['Priya', 'due-today'],
+      ['Aarav', 'due-soon'],
     ]);
     expect(att[0].daysOverdue).toBeGreaterThan(att[1].daysOverdue);
     expect(att[0].placement).toBe('Room 204 · Bed B');
@@ -113,7 +114,8 @@ describe('needs attention', () => {
   it('filters', () => {
     expect(filterAttention(att, 'overdue')).toHaveLength(2);
     expect(filterAttention(att, 'due-today')).toHaveLength(1);
-    expect(filterAttention(att, 'all')).toHaveLength(3);
+    expect(filterAttention(att, 'due-soon')).toHaveLength(1);
+    expect(filterAttention(att, 'all')).toHaveLength(4);
   });
   it('picks properties that owe, largest first', () => {
     expect(propertiesOwing(rows).map((p) => p.propertyId)).toEqual(['g', 's']);
