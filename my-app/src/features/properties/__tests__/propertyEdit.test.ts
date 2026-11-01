@@ -2,6 +2,7 @@ import { formFromProperty, isEdited, isSavedPhoto, parseStoredPhotos } from '@/f
 
 const doc = {
   name: 'Green PG',
+  propertyType: 'Coliving',
   location: '12 MG Road',
   city: 'Pune',
   state: 'MH',
@@ -20,6 +21,12 @@ const doc = {
 };
 
 describe('property edit model', () => {
+  it('reads the property type, leaving it empty for older or unknown values', () => {
+    expect(formFromProperty(doc).form.propertyType).toBe('Coliving');
+    expect(formFromProperty({ ...doc, propertyType: undefined }).form.propertyType).toBe('');
+    expect(formFromProperty({ ...doc, propertyType: 'Castle' }).form.propertyType).toBe('');
+  });
+
   it('loads a property document into the form and keeps only usable saved photos', () => {
     const { form, stored } = formFromProperty(doc);
     expect(form).toMatchObject({ name: 'Green PG', city: 'Pune', amenities: ['wifi', 'meals'], geo: { latitude: 18.5, longitude: 73.8 }, rooms: [] });

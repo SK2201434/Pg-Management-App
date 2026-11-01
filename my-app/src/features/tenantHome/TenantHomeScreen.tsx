@@ -76,7 +76,7 @@ export function TenantHomeScreen() {
     <ScrollView
       style={styles.screen}
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={stay.isRefetching} onRefresh={() => stay.refetch()} tintColor={BrandColors.accent} colors={[BrandColors.accent]} />}>
+      refreshControl={<RefreshControl refreshing={stay.isRefetching} onRefresh={() => void stay.refetch()} tintColor={BrandColors.accent} colors={[BrandColors.accent]} />}>
       <View style={styles.greeting}>
         <Text style={styles.greetingTitle}>{name ? `${greeting}, ${name}` : greeting}</Text>
         {stay.data?.state === 'active' ? <Text style={styles.muted}>{stay.data.propertyName}</Text> : null}

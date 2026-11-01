@@ -1,5 +1,5 @@
 // Pure helpers for editing an existing property. No React and no Firebase.
-import { emptyForm, type PhotoDraft, type PropertyForm } from '@/features/properties/propertySetup';
+import { emptyForm, isPropertyType, type PhotoDraft, type PropertyForm } from '@/features/properties/propertySetup';
 import type { StoredImage } from '@/features/storage/imageStorage';
 
 export type EditablePhotos = { photos: StoredImage[]; roomPhotos: StoredImage[] };
@@ -44,6 +44,7 @@ export function formFromProperty(data: Record<string, unknown>): PropertyEditDat
     form: {
       ...emptyForm(),
       name: text(data.name),
+      propertyType: isPropertyType(data.propertyType) ? data.propertyType : '',
       location: text(data.location),
       city: text(data.city),
       state: text(data.state),
@@ -66,6 +67,6 @@ export const isSavedPhoto = (d: PhotoDraft): boolean => d.uri.startsWith('https:
 /** Whether the owner changed anything (to confirm before leaving). */
 export function isEdited(initial: PropertyForm, current: PropertyForm): boolean {
   const key = (f: PropertyForm) =>
-    JSON.stringify([f.name, f.location, f.city, f.state, f.postalCode, f.description, f.contactName, f.contactPhone, [...f.amenities].sort(), f.photos.map((p) => p.uri), f.roomPhotos.map((p) => p.uri), f.geo]);
+    JSON.stringify([f.name, f.propertyType, f.location, f.city, f.state, f.postalCode, f.description, f.contactName, f.contactPhone, [...f.amenities].sort(), f.photos.map((p) => p.uri), f.roomPhotos.map((p) => p.uri), f.geo]);
   return key(initial) !== key(current);
 }

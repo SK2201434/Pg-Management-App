@@ -77,7 +77,7 @@ export function TenantUpdatesScreen() {
     <ScrollView
       style={styles.screen}
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={stay.isRefetching} onRefresh={() => stay.refetch()} tintColor={BrandColors.accent} colors={[BrandColors.accent]} />}>
+      refreshControl={<RefreshControl refreshing={stay.isRefetching} onRefresh={() => void stay.refetch()} tintColor={BrandColors.accent} colors={[BrandColors.accent]} />}>
       {header}
 
       {active ? (

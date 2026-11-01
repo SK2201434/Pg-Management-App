@@ -176,7 +176,7 @@ export function RoomsBedsScreen() {
     <AppScrollView
       style={styles.screen}
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={rooms.isRefetching && !rooms.isPending} onRefresh={() => rooms.refetch()} />}>
+      refreshControl={<RefreshControl refreshing={rooms.isRefetching && !rooms.isPending} onRefresh={() => void rooms.refetch()} />}>
       {header}
       {banner ? (
         <View style={styles.banner} accessibilityLiveRegion="polite">

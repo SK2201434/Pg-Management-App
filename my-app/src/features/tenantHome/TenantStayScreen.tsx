@@ -140,7 +140,7 @@ export function TenantStayScreen() {
     <ScrollView
       style={styles.screen}
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={stay.isRefetching} onRefresh={() => stay.refetch()} tintColor={BrandColors.accent} colors={[BrandColors.accent]} />}>
+      refreshControl={<RefreshControl refreshing={stay.isRefetching} onRefresh={() => void stay.refetch()} tintColor={BrandColors.accent} colors={[BrandColors.accent]} />}>
       <View style={styles.card}>
         <View style={[styles.row, styles.spread]}>
           <View style={[styles.row, styles.flex]}>

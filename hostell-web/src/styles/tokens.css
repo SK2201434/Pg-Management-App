@@ -1,0 +1,41 @@
+/* HOSTELL design tokens. Components read these variables; nothing else hard-codes a brand color. */
+:root {
+  --color-primary: #202a2b;
+  --color-sage: #6d9990;
+  --color-secondary: #3b665e;
+  --color-secondary-container: #bbe9df;
+  --color-background: #f3fbf7;
+  --color-surface: #ffffff;
+  --color-surface-low: #eef5f1;
+  --color-text-secondary: #5c6463;
+  --color-on-surface-variant: #434848;
+  --color-outline: #737878;
+  --color-border: #dce4e0;
+  --color-mint: #e8f0ec;
+
+  --color-text: #161d1b;
+  --color-focus: var(--color-secondary);
+
+  --font-sans: var(--font-jakarta), ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: var(--font-epilogue), var(--font-jakarta), ui-sans-serif, system-ui, sans-serif;
+
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  --shadow-card: 0 1px 2px rgb(32 42 43 / 0.05), 0 4px 12px rgb(32 42 43 / 0.06);
+  --shadow-lift: 0 12px 32px rgb(32 42 43 / 0.14);
+
+  --header-height: 80px;
+  --container-max: 1440px;
+  --gutter: clamp(24px, 5vw, 64px);
+}

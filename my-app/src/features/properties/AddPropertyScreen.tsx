@@ -1,4 +1,4 @@
-import { router, Stack, useNavigation } from 'expo-router';
+import { router, Stack, usePreventRemove } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -57,9 +57,9 @@ export function AddPropertyScreen() {
   const insets = useSafeAreaInsets();
   // The action bar steps aside while typing, so the keyboard never covers or pushes it over a field.
   const keyboardVisible = useKeyboardState((state) => state.isVisible);
-  const navigation = useNavigation();
   const scroll = useRef<KeyboardAwareScrollViewRef>(null);
-  const allowLeave = useRef(false);
+  // Set once the owner has chosen to leave (or the save finished), so leaving is no longer blocked.
+  const [leaving, setLeaving] = useState(false);
 
   const [form, setForm] = useState<PropertyForm>(emptyForm);
   const [step, setStep] = useState(0);
@@ -85,24 +85,20 @@ export function AddPropertyScreen() {
 
   // Confirm before throwing away entered data; block leaving mid-save.
   const dirty = isDirty(form);
-  useEffect(
-    () =>
-      navigation.addListener('beforeRemove', (event) => {
-        if (allowLeave.current || (!dirty && !isPending)) return;
-        event.preventDefault();
-        if (isPending) return;
-        confirm({
-          title: 'Discard this property?',
-          message: 'What you entered will be lost.',
-          confirmLabel: 'Discard',
-          cancelLabel: 'Keep editing',
-          destructive: true,
-        }).then((discard) => {
-          if (discard) navigation.dispatch(event.data.action);
-        });
-      }),
-    [navigation, dirty, isPending, confirm],
-  );
+  const disablePrevention = usePreventRemove(!leaving && (dirty || isPending), ({ repeat }) => {
+    if (isPending) return;
+    confirm({
+      title: 'Discard this property?',
+      message: 'What you entered will be lost.',
+      confirmLabel: 'Discard',
+      cancelLabel: 'Keep editing',
+      destructive: true,
+    }).then((discard) => {
+      if (!discard) return;
+      setLeaving(true);
+      repeat();
+    });
+  });
 
   const goTo = (next: number, focus: string | null = null) => {
     setStep(next);
@@ -131,7 +127,8 @@ export function AddPropertyScreen() {
         if (isDuplicateLocationError(failure)) goTo(0);
       },
       onSuccess: (result) => {
-        allowLeave.current = true;
+        setLeaving(true);
+        disablePrevention();
         if (router.canGoBack()) router.back();
         else router.replace('/owner/properties');
         Alert.alert('Property saved', successMessage(result, form.rooms.length > 0));

@@ -1,0 +1,452 @@
+.section {
+  padding-block: clamp(48px, 8vw, 80px);
+  scroll-margin-top: var(--header-height);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.sectionHead {
+  max-width: 42rem;
+  margin-bottom: var(--space-8);
+}
+
+.eyebrow {
+  margin: 0 0 var(--space-2);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: clamp(1.75rem, 4vw, 2.375rem);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.sectionLead {
+  margin: var(--space-3) 0 0;
+  line-height: 1.7;
+  color: var(--color-on-surface-variant);
+}
+
+.chipBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-8);
+}
+
+.filterChip,
+.filterChipActive {
+  min-height: 40px;
+  padding: 0 var(--space-4);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.filterChip {
+  color: var(--color-on-surface-variant);
+  background: var(--color-surface);
+}
+
+.filterChip:hover {
+  color: var(--color-primary);
+  background: var(--color-mint);
+}
+
+.filterChipActive {
+  color: #fff;
+  background: var(--color-primary);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+
+.filterBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  font-size: 0.9375rem;
+}
+
+.filterBar p {
+  margin: 0;
+}
+
+.grid {
+  display: grid;
+  gap: var(--space-8);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gridItem {
+  display: flex;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: hidden;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.3s ease;
+}
+
+.card:hover {
+  box-shadow: var(--shadow-lift);
+}
+
+.media {
+  position: relative;
+  flex: none;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  overflow: hidden;
+  background: var(--color-mint);
+}
+
+/* Taken out of flow so a photo's own dimensions can never change the card's image box. */
+.photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform 0.5s ease;
+}
+
+.card:hover .photo {
+  transform: scale(1.05);
+}
+
+.placeholder {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  color: var(--color-secondary);
+  background: linear-gradient(135deg, var(--color-mint), color-mix(in srgb, var(--color-sage) 18%, var(--color-surface)));
+}
+
+.badges {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-3);
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.badge {
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--color-secondary);
+  background: rgb(255 255 255 / 0.92);
+  backdrop-filter: blur(6px);
+  border-radius: 999px;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-6) var(--space-4);
+}
+
+.name {
+  margin: 0;
+  font-size: 1.25rem;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  font-weight: 700;
+  color: var(--color-primary);
+  overflow-wrap: anywhere;
+  transition: color 0.2s ease;
+}
+
+.card:hover .name {
+  color: var(--color-secondary);
+}
+
+.location {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 var(--space-2);
+  font-size: 0.8125rem;
+  color: var(--color-outline);
+}
+
+.location svg {
+  color: var(--color-secondary);
+}
+
+.amenities {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.amenity {
+  padding: 6px 10px;
+  font-size: 0.8125rem;
+  color: var(--color-on-surface-variant);
+  background: var(--color-surface-low);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-6);
+  background: var(--color-surface-low);
+}
+
+.footerLabel {
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--color-outline);
+}
+
+.rent,
+.rentMuted {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.rentMuted {
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+}
+
+.perMonth {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-on-surface-variant);
+}
+
+.viewButton {
+  flex: none;
+  padding: 10px 16px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: var(--color-primary);
+  border-radius: var(--radius-lg);
+  transition: background 0.15s ease;
+}
+
+.card:hover .viewButton {
+  background: #2a3230;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, var(--color-border), var(--color-mint), var(--color-border));
+  background-size: 200% 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+
+.media.skeleton {
+  border-radius: 0;
+}
+
+.skLineWide {
+  height: 20px;
+  width: 70%;
+}
+
+.skLine {
+  height: 14px;
+  width: 50%;
+}
+
+.skLineShort {
+  height: 14px;
+  width: 35%;
+}
+
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.panel {
+  padding: clamp(24px, 5vw, 48px);
+  text-align: center;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.panelBody {
+  max-width: 48ch;
+  margin: var(--space-3) auto 0;
+  color: var(--color-text-secondary);
+}
+
+.panelBody p {
+  margin: 0;
+}
+
+.panelActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-3);
+  margin-top: var(--space-6);
+}
+
+.more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-8);
+}
+
+.moreError {
+  margin: 0;
+  color: #9a3b2e;
+  font-size: 0.9375rem;
+}
+
+.end {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: 0.9375rem;
+}
+
+.buttonPrimary,
+.buttonSecondary {
+  min-height: 44px;
+  padding: 0 var(--space-6);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  border: 1px solid var(--color-primary);
+}
+
+.buttonPrimary {
+  background: var(--color-primary);
+  color: var(--color-surface);
+}
+
+.buttonSecondary {
+  background: var(--color-surface);
+  color: var(--color-primary);
+}
+
+.buttonPrimary:hover,
+.buttonSecondary:hover:not(:disabled) {
+  background: #2a3230;
+  color: var(--color-surface);
+}
+
+.buttonSecondary:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.linkButton {
+  padding: var(--space-1) var(--space-2);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+/* The title link is stretched over the whole card, so the card is one link target. */
+.cardLink {
+  color: inherit;
+  text-decoration: none;
+}
+
+.cardLink::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+}
+
+.cardLink:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.cardLink:focus-visible {
+  outline: none;
+}
+
+.cardLink:focus-visible::after {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 3px;
+}

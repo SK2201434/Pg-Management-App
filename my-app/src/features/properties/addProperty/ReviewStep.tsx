@@ -108,6 +108,7 @@ export function ReviewStep({ form, update, onSetRent }: ReviewStepProps) {
       <Text style={formStyles.sectionTitle}>Review</Text>
       <Card title="Property">
         <Row label="Name" value={form.name.trim() || '—'} />
+        <Row label="Type" value={form.propertyType || '—'} />
         <Row label="Address" value={place || '—'} />
         {contact ? <Row label="Contact" value={contact} /> : null}
         <Row label="Amenities" value={amenities.length > 0 ? amenities.join(', ') : 'None selected'} />

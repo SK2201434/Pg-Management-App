@@ -14,7 +14,7 @@ type BottomNavigationProps = BottomTabBarProps & { items: readonly NavItem[] };
 // One bottom bar for every role: `items` (see navigationConfig) decide what it shows. It is used
 // as the `tabBar` of a role's Tabs layout, so React Navigation owns active state, tab-press
 // handling (no duplicate pushes on the active tab) and the Android back behavior.
-export function BottomNavigation({ state, navigation, items }: BottomNavigationProps) {
+export function BottomNavigation({ state, emitter, navigateToTab, items }: BottomNavigationProps) {
   const insets = useSafeAreaInsets();
   const activeRoute = state.routes[state.index];
 
@@ -27,12 +27,12 @@ export function BottomNavigation({ state, navigation, items }: BottomNavigationP
         const color = focused ? BrandColors.accent : BrandColors.textSecondary;
 
         const onPress = () => {
-          const event = navigation.emit({
+          const event = emitter.emit({
             type: 'tabPress',
             target: route.key,
             canPreventDefault: true,
           });
-          if (!focused && !event.defaultPrevented) navigation.navigate(route.name, route.params);
+          if (!focused && !event.defaultPrevented) navigateToTab(route.key);
         };
 
         return (
@@ -42,7 +42,7 @@ export function BottomNavigation({ state, navigation, items }: BottomNavigationP
             accessibilityLabel={item.label}
             accessibilityState={{ selected: focused }}
             onPress={onPress}
-            onLongPress={() => navigation.emit({ type: 'tabLongPress', target: route.key })}
+            onLongPress={() => emitter.emit({ type: 'tabLongPress', target: route.key })}
             style={styles.item}>
             <MaterialIcons name={item.icon} size={ICON_SIZE} color={color} />
             <Text numberOfLines={1} adjustsFontSizeToFit style={[styles.label, focused && styles.labelActive, { color }]}>

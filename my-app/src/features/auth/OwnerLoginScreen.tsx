@@ -132,7 +132,7 @@ export function OwnerLoginScreen({
                   autoComplete="current-password"
                   textContentType="password"
                   returnKeyType="done"
-                  onSubmitEditing={onSubmit}
+                  onSubmitEditing={() => void onSubmit()}
                   editable={!isBusy}
                 />
 

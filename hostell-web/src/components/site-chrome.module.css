@@ -1,0 +1,262 @@
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: var(--header-height);
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 18px;
+  margin-left: -18px;
+  border-radius: var(--radius-md);
+  background: var(--color-mint);
+}
+
+/* The width/height props only reserve the aspect ratio; the rendered size is set here. */
+.logo {
+  width: auto;
+  height: 28px;
+}
+
+.footer {
+  margin-top: var(--space-6);
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-secondary-container);
+  color: var(--color-on-surface-variant);
+  font-size: 0.875rem;
+}
+
+.footerInner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  align-items: center;
+  justify-content: space-between;
+  padding-block: var(--space-6) var(--space-4);
+}
+
+.footerBase {
+  padding-block: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-mint);
+  color: var(--color-outline);
+  font-size: 0.8125rem;
+}
+
+.logoSmall {
+  width: auto;
+  height: 24px;
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.desktopNav {
+  display: none;
+}
+
+.mobileOnly {
+  position: relative;
+}
+
+@media (min-width: 768px) {
+  .desktopNav {
+    display: block;
+  }
+
+  .mobileOnly {
+    display: none;
+  }
+}
+
+.navList,
+.menuList,
+.footerLinks {
+  display: flex;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.navList {
+  align-items: center;
+  gap: var(--space-6);
+}
+
+.left,
+.right {
+  display: flex;
+  align-items: center;
+}
+
+.left {
+  gap: var(--space-6);
+}
+
+@media (min-width: 1024px) {
+  .left {
+    gap: var(--space-12);
+  }
+}
+
+.navLink,
+.navLinkActive,
+.navCta,
+.menuLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  color: var(--color-on-surface-variant);
+}
+
+.navLink:hover,
+.menuLink:hover {
+  color: var(--color-text);
+}
+
+/* The page being viewed: darker and underlined. */
+.navLinkActive {
+  color: var(--color-text);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 8px;
+}
+
+.menuLinkActive {
+  color: var(--color-text);
+  background: var(--color-mint);
+}
+
+.navCta {
+  padding: 0 var(--space-4);
+  color: #fff;
+  background: var(--color-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+
+.navCta:hover {
+  background: #2a3230;
+}
+
+.menuButton {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: var(--color-primary);
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+}
+
+.menu {
+  position: absolute;
+  z-index: 60;
+  top: calc(100% + 12px);
+  right: 0;
+  min-width: 220px;
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+}
+
+.menu[hidden] {
+  display: none;
+}
+
+.menuList {
+  flex-direction: column;
+}
+
+.menuLink {
+  display: flex;
+  min-height: 44px;
+  padding: 0 var(--space-3);
+  border-radius: var(--radius-sm);
+}
+
+.menuCtaItem {
+  margin-top: var(--space-2);
+}
+
+.menuList .menuLink {
+  justify-content: center;
+  text-align: center;
+}
+
+.menuLink.menuCta {
+  justify-content: center;
+  color: #fff;
+  background: var(--color-primary);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.12);
+}
+
+.menuLink.menuCta:hover {
+  color: #fff;
+  background: #2a3230;
+}
+
+.footerBrand {
+  max-width: 36ch;
+}
+
+.footerText {
+  margin: var(--space-2) 0 0;
+}
+
+.footerLinks {
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-6);
+}
+
+/* Phones: keep the three footer links on one row. */
+@media (max-width: 767px) {
+  .footerLinks {
+    flex-wrap: nowrap;
+    gap: var(--space-3);
+    font-size: 0.8125rem;
+    white-space: nowrap;
+  }
+}
+
+.footerLink {
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--color-on-surface-variant);
+}
+
+.footerLink:hover {
+  color: var(--color-text);
+}
+
+.footerSoon {
+  color: var(--color-text-secondary);
+}

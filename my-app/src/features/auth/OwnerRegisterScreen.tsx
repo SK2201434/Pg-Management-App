@@ -4,6 +4,7 @@ import { Controller, useForm } from 'react-hook-form';
 import {
   Modal,
   Pressable,
+  type PressableInstance,
   StyleSheet,
   Text,
   useWindowDimensions,
@@ -59,7 +60,7 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   // Where the dropdown opens (under the three-dot button); null while the menu is closed.
   const [menuPosition, setMenuPosition] = useState<{ top: number; right: number } | null>(null);
-  const menuButtonRef = useRef<View>(null);
+  const menuButtonRef = useRef<PressableInstance>(null);
   const copy = MODE_COPY[mode];
 
   const {
@@ -219,7 +220,7 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
                 autoComplete="new-password"
                 textContentType="newPassword"
                 returnKeyType="done"
-                onSubmitEditing={onSubmit}
+                onSubmitEditing={() => void onSubmit()}
                 editable={!isSubmitting}
               />
 

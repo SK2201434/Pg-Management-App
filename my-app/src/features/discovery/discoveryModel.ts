@@ -1,16 +1,20 @@
 // Pure model of property discovery and stay requests. No React, no Firebase.
 //
 // Firestore shape (see firestore.rules):
-//   publicListings/{propertyId}                 what an owner chose to publish: ownerUid, listed, name, location,
+//   publicListings/{propertyId}                 what an owner chose to publish: ownerUid, listed, name, propertyType?, location,
 //                                               city, state, postalCode, description?, coverUrl?, rentMinInr?,
 //                                               rentMaxInr?, sharingOptions[], contactName?, contactPhone?, updatedAt
 //   properties/{pid}/stayRequests/{tenantUid}   one request per tenant per property: tenantUid, ownerUid, propertyId,
 //                                               tenantName, tenantPhone?, message?, status, createdAt, updatedAt
 
+import type { PropertyType } from '@/features/properties/propertySetup';
+
 export type Listing = {
   id: string;
   ownerUid: string;
   name: string;
+  /** One of PROPERTY_TYPES; null for listings published before the field existed. */
+  propertyType: PropertyType | null;
   location: string | null;
   city: string | null;
   state: string | null;
@@ -104,7 +108,7 @@ export const acLabel = (t: Pick<RoomType, 'rooms' | 'acRooms'>): string => (t.ac
 
 /** What the owner publishes, derived from the property and its rooms. Only configured values are included. */
 export function buildListing(args: {
-  property: { name: string; location: string | null; city: string | null; state: string | null; postalCode: string | null; description: string | null; coverUrl: string | null; photoUrls?: readonly string[]; contactName: string | null; contactPhone: string | null };
+  property: { name: string; propertyType?: PropertyType | null; location: string | null; city: string | null; state: string | null; postalCode: string | null; description: string | null; coverUrl: string | null; photoUrls?: readonly string[]; contactName: string | null; contactPhone: string | null };
   rooms: readonly { sharing: number; ac: boolean; rentPerBedInr: number | null; beds: readonly { status: string; occupant: string | null }[] }[];
   amenities?: readonly string[];
   shareContact: boolean;
@@ -113,6 +117,7 @@ export function buildListing(args: {
   const { property: p } = args;
   return {
     name: p.name,
+    propertyType: p.propertyType ?? null,
     location: p.location,
     city: p.city,
     state: p.state,

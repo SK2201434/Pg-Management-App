@@ -4,6 +4,7 @@ import { getFirestoreDb } from '@/config/firebase';
 import { PAGE_SIZE, buildListing, isListable, type Listing, type RoomType, type StayRequest, type StayRequestStatus } from '@/features/discovery/discoveryModel';
 import { classifyLoadError, describeLoadError } from '@/features/discovery/loadError';
 import { claimLocationLocks } from '@/features/properties/propertyLocationService';
+import { isPropertyType } from '@/features/properties/propertySetup';
 import { fetchPropertyRooms } from '@/features/properties/propertyService';
 
 
@@ -25,6 +26,7 @@ function toListing(id: string, data: Record<string, unknown>): Listing | null {
     id,
     ownerUid,
     name,
+    propertyType: isPropertyType(data.propertyType) ? data.propertyType : null,
     location: text(data.location),
     city: text(data.city),
     state: text(data.state),
@@ -156,6 +158,7 @@ export async function publishListing(propertyId: string, ownerUid: string, share
   const listing = buildListing({
     property: {
       name: text(data.name) ?? 'Untitled property',
+      propertyType: isPropertyType(data.propertyType) ? data.propertyType : null,
       location: text(data.location),
       city: text(data.city),
       state: text(data.state),

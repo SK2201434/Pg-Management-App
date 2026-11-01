@@ -44,4 +44,36 @@ describe('addressFromGeocode', () => {
       postalCode: '',
     });
   });
+
+  it('fills missing city and postal code from the one-line address (Android)', () => {
+    const a = addressFromGeocode(
+      geo({
+        name: 'No 104',
+        street: 'Kavuri Hills Road',
+        region: 'Telangana',
+        formattedAddress: 'No 104, Kavuri Hills Road, Madhapur, Hyderabad, Telangana 500081, India',
+      }),
+    );
+    expect(a).toEqual({ location: 'No 104, Kavuri Hills Road', city: 'Hyderabad', state: 'Telangana', postalCode: '500081' });
+  });
+
+  it('never uses a Plus Code as the address, and builds it from the one-line address instead', () => {
+    const a = addressFromGeocode(
+      geo({
+        name: '8J2W+XX',
+        region: 'Telangana',
+        formattedAddress: '8J2W+XX Madhapur, Kavuri Hills Road, Madhapur, Hyderabad, Telangana 500081, India',
+      }),
+    );
+    expect(a.location).not.toMatch(/\+/);
+    expect(a).toMatchObject({ city: 'Hyderabad', state: 'Telangana', postalCode: '500081' });
+    expect(addressFromGeocode(geo({ name: '8J2W+XX', street: 'Kavuri Hills Road' })).location).toBe('Kavuri Hills Road');
+  });
+
+  it('prefers the separate fields over the one-line address', () => {
+    const a = addressFromGeocode(
+      geo({ city: 'Pune', region: 'Maharashtra', postalCode: '411001', formattedAddress: 'Somewhere, Mumbai, Maharashtra 400001, India' }),
+    );
+    expect(a).toMatchObject({ city: 'Pune', state: 'Maharashtra', postalCode: '411001' });
+  });
 });

@@ -1,0 +1,1080 @@
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: clamp(1.75rem, 4vw, 2.375rem);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.sectionLead {
+  margin: var(--space-3) 0 0;
+  font-size: 1.0625rem;
+  line-height: 1.7;
+  color: var(--color-on-surface-variant);
+}
+
+.tag {
+  display: inline-block;
+  margin: 0 0 var(--space-3);
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+  background: var(--color-secondary-container);
+  border-radius: 999px;
+}
+
+/* Buttons shared by the hero and the download call to action */
+.primaryCta,
+.secondaryCta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 48px;
+  padding: 0 var(--space-6);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-decoration: none;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.1);
+  transition: transform 0.15s ease, background 0.15s ease;
+}
+
+.primaryCta {
+  color: #fff;
+  background: var(--color-primary);
+  border: 0;
+}
+
+.primaryCta:hover {
+  background: #2a3230;
+  transform: translateY(-2px);
+}
+
+.primaryCta.onDark {
+  color: var(--color-primary);
+  background: var(--color-surface);
+}
+
+.primaryCta.onDark:hover {
+  background: var(--color-mint);
+}
+
+.secondaryCta {
+  color: var(--color-secondary);
+  background: var(--color-background);
+  border: 0;
+}
+
+.secondaryCta:hover {
+  background: var(--color-mint);
+}
+
+/* Hero */
+/* Not clipped itself, so the search dropdowns can open below it; the glows are clipped by .glows instead. */
+.hero {
+  position: relative;
+  z-index: 2;
+  overflow-x: clip;
+  background: var(--color-surface);
+}
+
+.glows {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.glowA,
+.glowB {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+}
+
+.glowA {
+  top: -128px;
+  right: -96px;
+  width: 540px;
+  height: 540px;
+  background: color-mix(in srgb, var(--color-secondary-container) 30%, transparent);
+  filter: blur(64px);
+}
+
+.glowB {
+  top: 50%;
+  left: -144px;
+  width: 420px;
+  height: 420px;
+  background: color-mix(in srgb, var(--color-mint) 60%, transparent);
+  filter: blur(40px);
+}
+
+.heroInner {
+  position: relative;
+  padding-block: var(--space-8) clamp(40px, 6vw, 64px);
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 var(--space-6);
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+  background: var(--color-mint);
+  border-radius: 999px;
+}
+
+.pillDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-secondary);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.heroGrid {
+  display: grid;
+  gap: clamp(32px, 5vw, 64px);
+  align-items: center;
+  margin-bottom: var(--space-8);
+}
+
+@media (min-width: 1024px) {
+  .heroGrid {
+    grid-template-columns: 7fr 5fr;
+  }
+}
+
+.heroCopy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.heroTitle {
+  max-width: 14em;
+  margin: 0;
+  font-size: clamp(2.25rem, 5.5vw, 3.5rem);
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-weight: 600;
+  color: var(--color-primary);
+  text-wrap: balance;
+}
+
+.heroAccent {
+  font-style: italic;
+  font-weight: 300;
+  color: var(--color-secondary);
+}
+
+.heroLead {
+  max-width: 36em;
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.7;
+  color: var(--color-on-surface-variant);
+}
+
+.heroActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+  padding-top: var(--space-1);
+}
+
+/* Phones: the two buttons share one row instead of wrapping. */
+@media (max-width: 767px) {
+  .heroActions {
+    flex-wrap: nowrap;
+    gap: var(--space-2);
+  }
+
+  .heroActions .primaryCta,
+  .heroActions .secondaryCta {
+    flex: 1;
+    min-width: 0;
+    min-height: 40px;
+    gap: 6px;
+    padding: 0 10px;
+    font-size: 0.75rem;
+    letter-spacing: 0;
+    white-space: nowrap;
+  }
+
+  .heroActions svg {
+    width: 16px;
+    height: 16px;
+  }
+}
+
+.heroVisual {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-lift);
+}
+
+.heroPhoto {
+  object-fit: cover;
+  transition: transform 0.5s ease;
+}
+
+/* Phones crop the photo shorter; anchor it to the bottom so the top is trimmed, not the bottom. */
+@media (max-width: 1023px) {
+  .heroPhoto {
+    object-position: center bottom;
+  }
+}
+
+.heroVisual:hover .heroPhoto {
+  transform: scale(1.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .heroVisual:hover .heroPhoto {
+    transform: none;
+  }
+}
+
+.heroVisualWrap {
+  position: relative;
+  order: -1; /* stacked layouts show the photo above the headline */
+  padding-bottom: 28px;
+}
+
+@media (min-width: 1024px) {
+  .heroVisualWrap {
+    order: 0;
+  }
+
+  .heroVisual {
+    aspect-ratio: 4 / 3;
+  }
+}
+
+.priceCard,
+.amenityCard {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-lift);
+}
+
+.priceCard {
+  left: 16px;
+  right: 16px;
+  bottom: 44px;
+  padding: 10px 16px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-surface) 92%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.priceDot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-secondary);
+}
+
+.priceInfo {
+  flex: 1;
+  min-width: 0;
+}
+
+.priceName,
+.priceSub,
+.amenityTitle,
+.amenitySub {
+  margin: 0;
+}
+
+.priceName {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.priceSub,
+.amenitySub {
+  font-size: 0.75rem;
+  color: var(--color-on-surface-variant);
+}
+
+.priceTag {
+  padding: 4px 12px;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--color-secondary);
+  background: var(--color-mint);
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.amenityCard {
+  left: 12px;
+  bottom: -12px;
+  padding: 12px 20px 12px 12px;
+  border-radius: var(--radius-lg);
+}
+
+@media (max-width: 767px) {
+  .amenityCard {
+    left: -4px;
+    right: auto;
+    max-width: calc(100% + 4px);
+  }
+}
+
+@media (min-width: 1024px) {
+  .amenityCard {
+    left: -96px;
+  }
+}
+
+.amenityIcon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  color: var(--color-secondary);
+  background: var(--color-mint);
+  border-radius: 50%;
+}
+
+.amenityTitle {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+/* Search card */
+/* Phones: locality and search take a full row, the two dropdowns share one. */
+.search {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lift);
+}
+
+.searchWide,
+.search .searchButton {
+  grid-column: 1 / -1;
+}
+
+@media (min-width: 768px) {
+  .search {
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .searchWide,
+  .search .searchButton {
+    grid-column: auto;
+  }
+}
+
+@media (min-width: 1100px) {
+  .search {
+    grid-template-columns: 1.3fr 1fr 1fr auto;
+    align-items: stretch;
+  }
+}
+
+.searchField {
+  position: relative;
+  min-width: 0;
+  padding: 6px var(--space-3);
+  background: var(--color-mint);
+  border-radius: var(--radius-md);
+}
+
+.selectButton {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 26px;
+  padding: 0;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: left;
+  color: var(--color-primary);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.selectButton:focus-visible {
+  outline: none;
+}
+
+.searchField:has(.selectButton:focus-visible) {
+  outline: 2px solid var(--color-focus);
+}
+
+.selectChevron {
+  display: grid;
+  color: var(--color-on-surface-variant);
+  transition: transform 0.15s ease;
+}
+
+.selectChevron[data-open="true"] {
+  transform: rotate(180deg);
+}
+
+.selectMenu {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 100%;
+  margin: 0;
+  padding: 6px;
+  list-style: none;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lift);
+}
+
+.selectOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: 10px 12px;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--color-primary);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* On phones each dropdown is half the card wide, so the list matches its field instead of spilling out. */
+@media (max-width: 767px) {
+  .selectMenu {
+    right: 0;
+  }
+
+  .selectOption {
+    gap: var(--space-2);
+    padding: 10px;
+    white-space: normal;
+  }
+
+  .search {
+    gap: 6px;
+    padding: 6px;
+  }
+
+  /* One line per field: the icon stands in for the label, whose text stays available to screen readers. */
+  .searchField {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+  }
+
+  .searchField .searchLabel {
+    flex: none;
+    gap: 0;
+    margin: 0;
+    font-size: 0;
+  }
+
+  .searchField .selectButton {
+    gap: 4px;
+    white-space: nowrap;
+  }
+
+  .searchField .selectButton > span:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .searchField .selectChevron {
+    flex: none;
+  }
+
+  .searchField .selectButton,
+  .searchField .searchInput {
+    flex: 1;
+    min-width: 0;
+    min-height: 22px;
+    font-size: 0.8125rem;
+  }
+
+  .search .searchButton {
+    min-height: 40px;
+    font-size: 0.75rem;
+  }
+
+  .selectOption {
+    font-size: 0.8125rem;
+  }
+}
+
+.selectOption[aria-selected="true"] {
+  font-weight: 700;
+  color: var(--color-secondary);
+}
+
+.selectOptionActive {
+  background: var(--color-mint);
+}
+
+.searchLabel {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-outline);
+}
+
+.searchLabel svg {
+  color: var(--color-secondary);
+}
+
+.searchInput {
+  width: 100%;
+  min-height: 26px;
+  padding: 0;
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  background: transparent;
+  border: 0;
+}
+
+.searchInput::placeholder {
+  color: var(--color-outline);
+  font-weight: 500;
+}
+
+.searchInput:focus-visible {
+  outline: none;
+}
+
+.searchField:focus-within {
+  outline: 2px solid var(--color-focus);
+}
+
+.searchButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: 0 var(--space-6);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #fff;
+  background: var(--color-primary);
+  border: 0;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.15);
+}
+
+.searchButton:hover {
+  background: #2a3230;
+}
+
+/* Mission */
+.mission {
+  padding-block: clamp(48px, 8vw, 80px);
+  scroll-margin-top: var(--header-height);
+}
+
+.missionHead {
+  max-width: 48rem;
+  margin-bottom: var(--space-12);
+}
+
+.missionGrid {
+  display: grid;
+  gap: var(--space-8);
+  align-items: stretch;
+}
+
+@media (min-width: 1024px) {
+  .missionGrid {
+    grid-template-columns: 5fr 7fr;
+  }
+}
+
+.missionCard {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  overflow: hidden;
+  background: var(--color-mint);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.missionImage {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  min-height: 320px;
+  overflow: hidden;
+  background: var(--color-primary);
+}
+
+/* Side by side: the photo gives up its extra height so the card is no taller than the points beside it. */
+@media (min-width: 1024px) {
+  .missionImage {
+    min-height: 240px;
+  }
+}
+
+.missionPhoto {
+  object-fit: cover;
+  object-position: center bottom;
+  transition: transform 0.5s ease;
+}
+
+.missionImage:hover .missionPhoto {
+  transform: scale(1.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .missionImage:hover .missionPhoto {
+    transform: none;
+  }
+}
+
+.missionCaption {
+  position: relative;
+  width: 100%;
+  padding: 72px var(--space-6) var(--space-4);
+  color: #fff;
+  background: linear-gradient(to top, rgb(0 0 0 / 0.65), transparent);
+}
+
+.missionBadge {
+  display: inline-block;
+  margin-bottom: var(--space-2);
+  padding: 4px 10px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #fff;
+  background: var(--color-secondary);
+  border-radius: 6px;
+}
+
+.missionQuote {
+  margin: 0;
+  font-size: clamp(1.125rem, 2.2vw, 1.375rem);
+  line-height: 1.3;
+  font-weight: 500;
+}
+
+.missionBy {
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+  color: rgb(255 255 255 / 0.8);
+}
+
+.missionFoot {
+  padding: var(--space-6);
+}
+
+.missionFootTitle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: var(--color-secondary);
+}
+
+.missionNote {
+  margin: 0;
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  color: var(--color-on-surface-variant);
+}
+
+.pillars {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pillar {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+  padding: var(--space-6);
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.2s ease;
+}
+
+.pillar:hover {
+  box-shadow: var(--shadow-lift);
+}
+
+.pillarIcon {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  color: var(--color-secondary);
+  background: var(--color-background);
+  border-radius: var(--radius-lg);
+}
+
+.pillarTitle {
+  margin: 0 0 4px;
+  font-family: var(--font-sans);
+  font-size: 1.0625rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.pillarCopy {
+  margin: 0;
+  line-height: 1.7;
+  color: var(--color-on-surface-variant);
+}
+
+/* App promotion */
+.app {
+  padding-block: clamp(32px, 5vw, 64px) 0;
+  scroll-margin-top: var(--header-height);
+}
+
+.appPanel {
+  position: relative;
+  display: grid;
+  gap: var(--space-8);
+  align-items: center;
+  overflow: hidden;
+  padding: clamp(24px, 6vw, 64px);
+  color: #fff;
+  background: var(--color-primary);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lift);
+}
+
+@media (min-width: 1024px) {
+  .appPanel {
+    grid-template-columns: 7fr 5fr;
+  }
+}
+
+.appGlow {
+  position: absolute;
+  top: -128px;
+  right: -128px;
+  width: 384px;
+  height: 384px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--color-secondary) 30%, transparent);
+  filter: blur(64px);
+  pointer-events: none;
+}
+
+.appCopyCol {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.appPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 4px 12px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #beece2;
+  background: rgb(255 255 255 / 0.1);
+  border-radius: 999px;
+}
+
+.appPillDot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #beece2;
+}
+
+.appTitle {
+  max-width: 20em;
+  margin: 0;
+  font-size: clamp(1.75rem, 4vw, 2.375rem);
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  color: #fff;
+}
+
+.appCopy {
+  max-width: 36em;
+  margin: 0;
+  font-size: 1.0625rem;
+  line-height: 1.7;
+  color: #c0c8c5;
+}
+
+.appPanel .primaryCta {
+  color: var(--color-primary);
+  background: var(--color-surface);
+}
+
+.appPanel .primaryCta:hover {
+  background: var(--color-mint);
+}
+
+.comingSoon {
+  display: inline-flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 var(--space-6);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--color-primary);
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+}
+
+.features {
+  display: grid;
+  gap: var(--space-4);
+  margin: var(--space-4) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 640px) {
+  .features {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+.featureIcon {
+  display: block;
+  margin-bottom: 4px;
+  color: #beece2;
+}
+
+.featureTitle {
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #fff;
+}
+
+.featureCopy {
+  margin: 2px 0 0;
+  font-size: 0.8125rem;
+  color: #c0c8c5;
+}
+
+.phoneWrap {
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+
+@media (min-width: 1024px) {
+  .phoneWrap {
+    justify-content: flex-end;
+  }
+}
+
+.phone {
+  width: 100%;
+  max-width: 300px;
+  padding: 12px;
+  background: #2a3230;
+  border-radius: 40px;
+  box-shadow: var(--shadow-lift);
+}
+
+.phoneNotch {
+  width: 96px;
+  height: 16px;
+  margin: 0 auto 12px;
+  background: var(--color-primary);
+  border-radius: 999px;
+}
+
+.phoneScreen {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 400px;
+  padding: 16px;
+  color: var(--color-text);
+  background: var(--color-background);
+  border-radius: 32px;
+}
+
+.phoneTop,
+.phoneRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.phoneTop {
+  justify-content: flex-start;
+}
+
+.phoneAvatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-secondary);
+  background: var(--color-secondary-container);
+  border-radius: 50%;
+}
+
+.phoneTitle {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.phoneCard {
+  padding: 12px;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+}
+
+.phoneCard p {
+  margin: 4px 0 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.phoneKicker {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-secondary);
+}
+
+.phoneBadge {
+  padding: 2px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-secondary);
+  background: var(--color-secondary-container);
+  border-radius: 999px;
+}
+
+.phoneChat {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px;
+  background: var(--color-mint);
+  border-radius: var(--radius-lg);
+}
+
+.bubbleIn,
+.bubbleOut {
+  max-width: 85%;
+  padding: 8px;
+  font-size: 0.75rem;
+  border-radius: var(--radius-md);
+}
+
+.bubbleIn {
+  align-self: flex-start;
+  color: var(--color-primary);
+  background: var(--color-surface);
+}
+
+.bubbleOut {
+  align-self: flex-end;
+  color: #fff;
+  background: var(--color-primary);
+}

@@ -133,7 +133,7 @@ export function PropertiesScreen() {
       keyboardShouldPersistTaps="handled"
       keyboardDismissMode="on-drag"
       refreshControl={
-        <RefreshControl refreshing={isRefetching && !isPending} onRefresh={() => refetch()} />
+        <RefreshControl refreshing={isRefetching && !isPending} onRefresh={() => void refetch()} />
       }>
       <View style={styles.intro}>
         <View style={styles.introText}>

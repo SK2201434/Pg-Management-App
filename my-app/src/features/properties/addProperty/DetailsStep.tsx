@@ -7,7 +7,7 @@ import { Card, Chip, Field, formStyles } from '@/features/properties/addProperty
 import type { StepProps } from '@/features/properties/addProperty/stepTypes';
 import { getCurrentAddress, getCurrentAddressMessage } from '@/features/properties/currentAddress';
 import { parseGeo, splitCoordinatePair } from '@/features/properties/propertyLocation';
-import { AMENITIES, LIMITS } from '@/features/properties/propertySetup';
+import { AMENITIES, LIMITS, PROPERTY_TYPES } from '@/features/properties/propertySetup';
 
 export function DetailsStep({ form, update, errors, showErrors, locationError }: StepProps) {
   const [locating, setLocating] = useState(false);
@@ -74,6 +74,17 @@ export function DetailsStep({ form, update, errors, showErrors, locationError }:
           autoCapitalize="words"
           returnKeyType="next"
         />
+        <View style={{ gap: 6 }}>
+          <Text style={styles.coordsTitle}>Property type</Text>
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8 }} accessibilityRole="radiogroup">
+            {PROPERTY_TYPES.map((type) => (
+              <Chip key={type} label={type} selected={form.propertyType === type} onPress={() => update({ propertyType: type })} />
+            ))}
+          </View>
+          {showErrors && errors.propertyType ? (
+            <Text style={styles.typeError} accessibilityRole="alert">{errors.propertyType}</Text>
+          ) : null}
+        </View>
         <Field
           label="Address / location"
           labelAction={{ label: 'Use current location', onPress: useCurrentLocation, busy: locating }}
@@ -199,5 +210,6 @@ const styles = StyleSheet.create({
   tip: { gap: 8, padding: 12, borderRadius: 10, backgroundColor: BrandColors.background },
   tipText: { fontSize: 13, color: BrandColors.textSecondary },
   tipLink: { fontSize: 13, fontWeight: '600', color: BrandColors.accent },
+  typeError: { fontSize: 12, color: BrandColors.error },
   locationErrorText: { fontSize: 13, color: BrandColors.error },
 });

@@ -2,7 +2,7 @@
 // Firestore documents a form turns into. No React and no Firebase here, so it is unit-tested.
 //
 // Firestore shape (see firestore.rules):
-//   properties/{pid}                         ownerUid, name, location, city, state, postalCode,
+//   properties/{pid}                         ownerUid, name, propertyType (one of PROPERTY_TYPES), location, city, state, postalCode,
 //                                            contactName, contactPhone, description?, amenities[] (keys of AMENITIES), geo? (GeoPoint), photos?[] and roomPhotos?[] (<= 4 each),
 //                                            setupStatus ('draft' | 'ready'), createdAt, updatedAt
 //   properties/{pid}/rooms/{rid}             ownerUid, propertyId, roomNumber, floor?, sharing
@@ -32,6 +32,12 @@ export const AMENITIES = [
 ] as const;
 
 export const amenityLabel = (key: string): string | null => AMENITIES.find((a) => a.key === key)?.label ?? null;
+
+/** The kinds of property an owner can list. The stored value is the label itself; the website filters on it. */
+export const PROPERTY_TYPES = ["Men's Hostel", "Women's Hostel", 'Coliving'] as const;
+export type PropertyType = (typeof PROPERTY_TYPES)[number];
+
+export const isPropertyType = (v: unknown): v is PropertyType => PROPERTY_TYPES.some((t) => t === v);
 
 export const MAX_FLOORS = 30;
 export const MAX_SHARING = 12;
@@ -75,6 +81,8 @@ export type PhotoDraft = { uri: string; mimeType: string | null; fileSize: numbe
 
 export type PropertyForm = {
   name: string;
+  /** One of PROPERTY_TYPES; empty until the owner chooses. */
+  propertyType: PropertyType | '';
   location: string;
   city: string;
   state: string;
@@ -101,6 +109,7 @@ export type PropertyForm = {
 
 export const emptyForm = (): PropertyForm => ({
   name: '',
+  propertyType: '',
   location: '',
   city: '',
   state: '',
@@ -189,6 +198,7 @@ const norm = (value: string) => value.trim().toLowerCase();
 
 export type FormErrors = {
   name?: string;
+  propertyType?: string;
   location?: string;
   contactPhone?: string;
   postalCode?: string;
@@ -207,6 +217,8 @@ export function validateForm(form: PropertyForm): FormErrors {
   else if (name.length > LIMITS.name) errors.name = `Use at most ${LIMITS.name} characters.`;
   if (!location) errors.location = 'Enter the property address or location.';
   else if (location.length > LIMITS.location) errors.location = `Use at most ${LIMITS.location} characters.`;
+
+  if (!isPropertyType(form.propertyType)) errors.propertyType = 'Choose the property type.';
 
   const city = form.city.trim();
   if (!city) errors.city = 'Enter the city.';
@@ -236,7 +248,7 @@ export function validateForm(form: PropertyForm): FormErrors {
 }
 
 export const hasErrors = (e: FormErrors) =>
-  !!(e.name || e.location || e.city || e.state || e.postalCode || e.contactName || e.contactPhone) || Object.keys(e.rooms).length > 0;
+  !!(e.name || e.propertyType || e.location || e.city || e.state || e.postalCode || e.contactName || e.contactPhone) || Object.keys(e.rooms).length > 0;
 
 /** Step 1 (details) is complete enough to continue. */
 export const detailsValid = (form: PropertyForm) => {
@@ -293,6 +305,7 @@ export function orderedPhotos(form: PropertyForm): PhotoDraft[] {
 /** Whether anything has been entered (to confirm before discarding). */
 export function isDirty(form: PropertyForm): boolean {
   return (
+    form.propertyType !== '' ||
     [form.name, form.location, form.city, form.state, form.postalCode, form.description, form.contactName, form.contactPhone].some(
       (v) => v.trim() !== '',
     ) ||
@@ -354,6 +367,7 @@ export function chunkRoomWrites(writes: readonly RoomWrite[], max = 250): RoomWr
 export function propertyFields(form: PropertyForm) {
   const optional = (v: string) => v.trim() || undefined;
   const out: Record<string, string> = { name: form.name.trim(), location: form.location.trim() };
+  if (isPropertyType(form.propertyType)) out.propertyType = form.propertyType;
   const extras = {
     description: optional(form.description),
     contactName: optional(form.contactName),

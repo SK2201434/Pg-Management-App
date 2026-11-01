@@ -1,5 +1,5 @@
 import type { Href } from 'expo-router';
-import Tabs from 'expo-router/js-tabs';
+import { Tabs } from 'expo-router/js-tabs';
 
 import { AccountRoles, type AccountRole } from '@/constants/account';
 import { AppTopBar } from '@/features/navigation/AppTopBar';
@@ -31,7 +31,11 @@ export function RoleTabsLayout({ role }: { role: AccountRole }) {
           );
         },
       }}
-      tabBar={(props) => <BottomNavigation {...props} items={items} />}
-    />
+      tabBar={(props) => <BottomNavigation {...props} items={items} />}>
+      {/* Expo Router shows only the screens a layout declares, so each tab is listed here. */}
+      {items.map((item) => (
+        <Tabs.Screen key={item.routeName} name={item.routeName} />
+      ))}
+    </Tabs>
   );
 }

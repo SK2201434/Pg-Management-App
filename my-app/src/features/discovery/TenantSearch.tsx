@@ -1,7 +1,7 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { router, usePathname } from 'expo-router';
 import { useEffect, useRef } from 'react';
-import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, TextInput, View, type TextInputInstance } from 'react-native';
 
 import { BrandColors } from '@/constants/theme';
 import { TopBarIconButton } from '@/features/navigation/AppTopBar';
@@ -30,7 +30,7 @@ export function TenantSearchButton() {
 /** The expanded field that replaces the title in the top bar; closing it restores the normal bar. */
 export function TenantSearchField() {
   const { query } = useSearchState();
-  const input = useRef<TextInput>(null);
+  const input = useRef<TextInputInstance>(null);
   useEffect(() => {
     input.current?.focus();
   }, []);

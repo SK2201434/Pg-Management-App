@@ -74,7 +74,7 @@ export function DiscoverScreen() {
           if (hasNextPage && !isFetchingNextPage && !isFetchNextPageError) void fetchNextPage();
         }}
         onEndReachedThreshold={0.5}
-        refreshControl={<RefreshControl refreshing={listings.isRefetching} onRefresh={() => listings.refetch()} tintColor={BrandColors.accent} colors={[BrandColors.accent]} />}
+        refreshControl={<RefreshControl refreshing={listings.isRefetching} onRefresh={() => void listings.refetch()} tintColor={BrandColors.accent} colors={[BrandColors.accent]} />}
         ListHeaderComponent={
           <Text style={styles.intro}>
             {searching ? `${shown.length} ${shown.length === 1 ? 'result' : 'results'} for “${search.trim()}”` : 'Hostels and PGs listed by their owners. Search by name, city or area.'}
@@ -95,7 +95,7 @@ export function DiscoverScreen() {
               <Text style={styles.muted}>Couldn’t load more properties.</Text>
               <AppButton label="Try again" variant="secondary" size="sm" onPress={() => fetchNextPage()} />
             </View>
-          ) : null
+          ) : undefined
         }
         renderItem={({ item }) => <ListingCard listing={item} current={item.id === currentId} />}
       />

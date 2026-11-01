@@ -293,7 +293,8 @@ service cloud.firestore {
     }
 
     function validPropertyExtras(d) {
-      return optionalText(d, 'location', 200)
+      return (!('propertyType' in d) || d.propertyType in ["Men's Hostel", "Women's Hostel", 'Coliving'])
+        && optionalText(d, 'location', 200)
         && optionalText(d, 'description', 1000)
         && optionalText(d, 'contactName', 100)
         && optionalText(d, 'contactPhone', 20)
@@ -484,7 +485,7 @@ service cloud.firestore {
     // rooms, beds or occupancy. Contact fields exist only if the owner opts to share them.
     function validListing(pid) {
       let d = request.resource.data;
-      return d.keys().hasOnly(['ownerUid', 'propertyId', 'listed', 'name', 'location', 'city', 'state', 'postalCode',
+      return d.keys().hasOnly(['ownerUid', 'propertyId', 'listed', 'name', 'propertyType', 'location', 'city', 'state', 'postalCode',
                                'description', 'coverUrl', 'photoUrls', 'roomTypes', 'amenities', 'rentMinInr', 'rentMaxInr', 'sharingOptions',
                                'contactName', 'contactPhone', 'updatedAt'])
         && d.keys().hasAll(['ownerUid', 'propertyId', 'listed', 'name', 'sharingOptions', 'updatedAt'])
@@ -492,6 +493,7 @@ service cloud.firestore {
         && d.propertyId == pid
         && d.listed is bool
         && isShortString(d.name, 120)
+        && (!('propertyType' in d) || d.propertyType == null || d.propertyType in ["Men's Hostel", "Women's Hostel", 'Coliving'])
         && (!('location' in d) || d.location == null || isShortString(d.location, 200))
         && (!('city' in d) || d.city == null || isShortString(d.city, 100))
         && (!('state' in d) || d.state == null || isShortString(d.state, 100))
@@ -793,7 +795,7 @@ service cloud.firestore {
       // `ready` once they are in place (see propertyCreation.ts). Legacy documents have no
       // `setupStatus` and count as ready. `photos` can only be added by the update that finalizes.
       allow create: if isActiveOwner()
-        && request.resource.data.keys().hasOnly(['ownerUid', 'name', 'location', 'description',
+        && request.resource.data.keys().hasOnly(['ownerUid', 'name', 'propertyType', 'location', 'description',
              'contactName', 'contactPhone', 'city', 'state', 'postalCode', 'geo', 'amenities', 'setupStatus', 'status',
              'createdAt', 'updatedAt'])
         && request.resource.data.keys().hasAll(['ownerUid', 'name', 'location', 'city', 'state',
@@ -814,7 +816,7 @@ service cloud.firestore {
       allow update: if isActiveOwner()
         && resource.data.ownerUid == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['name', 'location', 'description', 'contactName', 'contactPhone', 'city',
+             .hasOnly(['name', 'propertyType', 'location', 'description', 'contactName', 'contactPhone', 'city',
                        'state', 'postalCode', 'geo', 'amenities', 'photos', 'roomPhotos', 'houseRules', 'moveOutPolicy', 'setupStatus', 'status',
                        'updatedAt'])
         && isShortString(request.resource.data.name, 120)

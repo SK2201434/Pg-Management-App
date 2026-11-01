@@ -140,7 +140,7 @@ export function TenantsOverviewScreen() {
     </View>
   );
 
-  let empty: React.ReactNode = null;
+  let empty: React.ReactElement | undefined;
   if (data.isPending) {
     empty = (
       <View style={styles.center}>

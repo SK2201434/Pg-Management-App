@@ -1,6 +1,6 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
-import { router, Stack, useLocalSearchParams, useNavigation } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
+import { router, Stack, useLocalSearchParams, usePreventRemove } from 'expo-router';
+import { useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 
 import { AppButton } from '@/components/app-button';
@@ -58,8 +58,8 @@ function Message({ icon, title, body, onRetry }: { icon: React.ComponentProps<ty
 }
 
 function Editor({ propertyId, original }: { propertyId: string; original: PropertyEditData }) {
-  const navigation = useNavigation();
-  const allowLeave = useRef(false);
+  // Set once the owner has chosen to leave (or the save finished), so leaving is no longer blocked.
+  const [leaving, setLeaving] = useState(false);
   const { confirm, dialog } = useConfirm();
   const [form, setForm] = useState<PropertyForm>(original.form);
   const [showErrors, setShowErrors] = useState(false);
@@ -74,18 +74,14 @@ function Editor({ propertyId, original }: { propertyId: string; original: Proper
   };
 
   const edited = isEdited(original.form, form);
-  useEffect(
-    () =>
-      navigation.addListener('beforeRemove', (event) => {
-        if (allowLeave.current || (!edited && !save.isPending)) return;
-        event.preventDefault();
-        if (save.isPending) return;
-        confirm({ title: 'Discard your changes?', message: 'What you changed will be lost.', confirmLabel: 'Discard', cancelLabel: 'Keep editing', destructive: true }).then((discard) => {
-          if (discard) navigation.dispatch(event.data.action);
-        });
-      }),
-    [navigation, edited, save.isPending, confirm],
-  );
+  const disablePrevention = usePreventRemove(!leaving && (edited || save.isPending), ({ repeat }) => {
+    if (save.isPending) return;
+    confirm({ title: 'Discard your changes?', message: 'What you changed will be lost.', confirmLabel: 'Discard', cancelLabel: 'Keep editing', destructive: true }).then((discard) => {
+      if (!discard) return;
+      setLeaving(true);
+      repeat();
+    });
+  });
 
   const submit = () => {
     if (save.isPending) return;
@@ -100,7 +96,8 @@ function Editor({ propertyId, original }: { propertyId: string; original: Proper
             // Keep editing: the photos that failed are still in the form to try again.
             return;
           }
-          allowLeave.current = true;
+          setLeaving(true);
+          disablePrevention();
           router.back();
         },
       },

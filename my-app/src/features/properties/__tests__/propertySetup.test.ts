@@ -30,6 +30,7 @@ const room = (over: Partial<RoomDraft> = {}): RoomDraft => ({
 const form = (over: Partial<PropertyForm> = {}): PropertyForm => ({
   ...emptyForm(),
   name: 'Sunrise PG',
+  propertyType: 'Coliving',
   location: 'MVP Colony',
   city: 'Visakhapatnam',
   state: 'Andhra Pradesh',
@@ -45,6 +46,14 @@ describe('validateForm', () => {
     expect(e.name).toBeDefined();
     expect(e.location).toBeDefined();
     expect(validateForm(form()).name).toBeUndefined();
+  });
+
+  it('requires a known property type and stores it with the property', () => {
+    expect(validateForm({ ...emptyForm(), name: 'X' }).propertyType).toBeDefined();
+    expect(validateForm(form({ propertyType: '' })).propertyType).toBeDefined();
+    expect(validateForm(form({ propertyType: "Women's Hostel" })).propertyType).toBeUndefined();
+    expect(propertyFields(form({ propertyType: "Men's Hostel" })).propertyType).toBe("Men's Hostel");
+    expect(propertyFields(form({ propertyType: '' })).propertyType).toBeUndefined();
   });
 
   it('requires city, postal code and contact name and phone', () => {
@@ -188,6 +197,7 @@ describe('misc', () => {
   it('drops empty optional property fields', () => {
     expect(propertyFields(form({ city: ' Vizag ', description: '  ' }))).toEqual({
       name: 'Sunrise PG',
+      propertyType: 'Coliving',
       location: 'MVP Colony',
       contactName: 'Ravi',
       contactPhone: '+91 98765 43210',

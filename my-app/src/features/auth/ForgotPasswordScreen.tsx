@@ -122,7 +122,7 @@ export function ForgotPasswordScreen({
                       autoCorrect={false}
                       textContentType="emailAddress"
                       returnKeyType="done"
-                      onSubmitEditing={onSubmit}
+                      onSubmitEditing={() => void onSubmit()}
                       editable={!isSubmitting}
                     />
 

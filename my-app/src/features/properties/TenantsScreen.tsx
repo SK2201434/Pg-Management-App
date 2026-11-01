@@ -140,7 +140,7 @@ function TenantsContent({ propertyId }: { propertyId: string }) {
     <AppScrollView
       style={styles.screen}
       contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={tenants.isRefetching && !tenants.isPending} onRefresh={() => tenants.refetch()} />}>
+      refreshControl={<RefreshControl refreshing={tenants.isRefetching && !tenants.isPending} onRefresh={() => void tenants.refetch()} />}>
       {header}
 
       <View style={styles.switcher}>

@@ -1,7 +1,7 @@
 import { acLabel, galleryOf, MAX_SEARCH_PAGES, mergePages, shouldLoadMoreForSearch, addressOf, buildListing, canRequest, filterListings, formatRentRange, sharingSummary, whatsAppUrl, type Listing } from '@/features/discovery/discoveryModel';
 
 const l = (id: string, name: string, city: string | null, location: string | null = null): Listing => ({
-  id, ownerUid: 'o', name, location, city, state: null, postalCode: null, description: null, coverUrl: null, photoUrls: [],
+  id, ownerUid: 'o', name, propertyType: null, location, city, state: null, postalCode: null, description: null, coverUrl: null, photoUrls: [],
   rentMinInr: null, rentMaxInr: null, roomTypes: [], amenities: [], updatedMs: null, sharingOptions: [], contactName: null, contactPhone: null,
 });
 
