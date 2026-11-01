@@ -73,7 +73,6 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
       full_name: '',
       email: '',
       phone: '',
-      referral_code: '',
       password: '',
       confirm_password: '',
     },
@@ -81,7 +80,7 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
 
   // Registering also signs the user in; OwnerAuthGate then swaps this screen out for the
   // verify-email screen. `confirm_password` is validated on the client and not sent.
-  const onSubmit = handleSubmit(async ({ full_name, email, password, phone, referral_code, gender }) => {
+  const onSubmit = handleSubmit(async ({ full_name, email, password, phone, gender }) => {
     if (isSubmitting) return;
     setSubmitError(null);
     try {
@@ -93,7 +92,6 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
           accountType: mode,
           phone: phone.trim() || undefined,
           gender,
-          referralCode: mode === AccountRoles.Tenant ? referral_code.trim() || undefined : undefined,
         }),
       ).unwrap();
     } catch (error) {
@@ -186,18 +184,6 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
                   <GenderSelect value={field.value} onChange={field.onChange} error={errors.gender?.message} disabled={isSubmitting} />
                 )}
               />
-              {mode === AccountRoles.Tenant ? (
-                <LoginTextField
-                  control={control}
-                  name="referral_code"
-                  label="Property ID or referral code (optional)"
-                  error={errors.referral_code?.message}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="next"
-                  editable={!isSubmitting}
-                />
-              ) : null}
               <LoginTextField
                 control={control}
                 name="password"

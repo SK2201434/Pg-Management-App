@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Epilogue, Plus_Jakarta_Sans } from "next/font/google";
 
+import { SiteAnalytics } from "@/components/analytics";
 import { JsonLd } from "@/components/json-ld";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
@@ -45,6 +46,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           {children}
         </main>
         <SiteFooter />
+        <SiteAnalytics />
       </body>
     </html>
   );

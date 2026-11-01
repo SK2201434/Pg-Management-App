@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, TextInput } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet } from 'react-native';
 
 import { AppButton } from '@/components/app-button';
 import { AppScrollView } from '@/components/app-scroll-view';
@@ -26,8 +26,6 @@ type Phase =
   | { name: 'loading' }
   | { name: 'choose' }
   | { name: 'error'; message: string; intent: RegistrationIntent; referral: boolean };
-
-const REFERRAL_PATTERN = /^[A-Za-z0-9_-]{20,128}$/;
 
 // Shown for a verified user whose `users/{uid}` does not exist yet. It creates the profile from the
 // account type chosen at registration, which cannot be changed here. Only if that choice is lost
@@ -126,9 +124,6 @@ export function ProfileSetupScreen({ onDone }: { onDone: () => void }) {
 
 function ChooseType({ onChoose }: { onChoose: (intent: RegistrationIntent) => void }) {
   const [type, setType] = useState<AccountType>(AccountRoles.Tenant);
-  const [code, setCode] = useState('');
-  const trimmed = code.trim();
-  const codeInvalid = trimmed !== '' && !REFERRAL_PATTERN.test(trimmed);
 
   return (
     <ThemedView style={styles.flex}>
@@ -151,31 +146,10 @@ function ChooseType({ onChoose }: { onChoose: (intent: RegistrationIntent) => vo
           </ThemedText>
         </Pressable>
       ))}
-      {type === AccountRoles.Tenant ? (
-        <TextInput
-          accessibilityLabel="Property ID or referral code (optional)"
-          placeholder="Property ID or referral code (optional)"
-          placeholderTextColor={BrandColors.textSecondary}
-          autoCapitalize="none"
-          autoCorrect={false}
-          value={code}
-          onChangeText={setCode}
-          style={styles.input}
-        />
-      ) : null}
-      {codeInvalid ? (
-        <ThemedText style={styles.error}>Enter the full referral code.</ThemedText>
-      ) : null}
       <AppButton
         variant="submit"
         label="Continue"
-        disabled={codeInvalid}
-        onPress={() =>
-          onChoose({
-            accountType: type,
-            ...(type === AccountRoles.Tenant && trimmed !== '' ? { referralCode: trimmed } : {}),
-          })
-        }
+        onPress={() => onChoose({ accountType: type })}
       />
       <SignOutButton />
       </AppScrollView>
