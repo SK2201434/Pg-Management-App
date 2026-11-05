@@ -4,7 +4,8 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 import { Icon } from "@/components/icons";
-import { CONTINUE_PATH, runEmailAction, type ActionOutcome, type ActionParams } from "@/lib/auth/email-action";
+import { PasswordResetAction } from "@/components/auth/password-reset-action";
+import { CONTINUE_PATH, isPasswordResetMode, runEmailAction, type ActionOutcome, type ActionParams } from "@/lib/auth/email-action";
 import styles from "./email-action.module.css";
 
 type State = "loading" | ActionOutcome;
@@ -14,11 +15,17 @@ const COPY: Record<ActionOutcome, { title: string; body: string }> = {
   expired: { title: "This link has expired", body: "Verification links only work for a limited time. Open the HOSTELL app and request a new verification email." },
   invalid: { title: "This link is invalid", body: "The link is incomplete or damaged. Please use the link exactly as it appears in your email, or request a new one in the app." },
   used: { title: "This link can’t be used", body: "It may have already been used, in which case your email is verified already. Otherwise, request a new verification email in the app." },
-  unsupported: { title: "This action isn’t supported", body: "This page can only confirm email verification links. Please go back to HOSTELL and try again." },
+  unsupported: { title: "This action isn’t supported", body: "This page can only confirm email verification and password reset links. Please go back to HOSTELL and try again." },
   failed: { title: "We couldn’t verify your email", body: "Something went wrong on our side or with your connection. Please try again in a moment." },
 };
 
+/** Entry point for /auth/action: password-reset links get their own flow; everything else is the email-verification flow. */
 export function EmailAction({ params }: { params: ActionParams }) {
+  if (isPasswordResetMode(params.mode)) return <PasswordResetAction params={params} />;
+  return <VerifyEmailAction params={params} />;
+}
+
+function VerifyEmailAction({ params }: { params: ActionParams }) {
   const [state, setState] = useState<State>("loading");
   const started = useRef(false);
 

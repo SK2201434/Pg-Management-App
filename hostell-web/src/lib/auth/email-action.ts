@@ -20,6 +20,9 @@ export function readActionParams(query: Record<string, string | string[] | undef
   return { mode: first(query.mode), oobCode: first(query.oobCode) };
 }
 
+/** True when the link is a Firebase password-reset link, which is handled by `password-reset.ts`. */
+export const isPasswordResetMode = (mode: string | null): boolean => mode === "resetPassword";
+
 /** Maps a Firebase Auth error code to a user-facing outcome. Raw codes and messages are never shown. */
 export function outcomeForError(error: unknown): ActionOutcome {
   const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code: unknown }).code) : "";

@@ -5,7 +5,7 @@ import { EmailAction } from "@/components/auth/email-action";
 import { readActionParams } from "@/lib/auth/email-action";
 
 export const metadata: Metadata = {
-  title: "Verify your email",
+  title: "Confirm your HOSTELL account",
   robots: { index: false, follow: false },
   // The URL carries a single-use code; keep it out of Referer headers sent to other sites.
   referrer: "no-referrer",

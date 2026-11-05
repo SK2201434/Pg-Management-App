@@ -7,6 +7,7 @@ import { checkEmailVerified, sendVerificationEmail } from '@/features/auth/email
 import { getResendCooldownRemaining } from '@/features/auth/resendCooldown';
 import { verificationEmailSendResult } from '@/features/auth/ownerAuthSlice';
 import { selectOwner, selectVerificationEmailFailed } from '@/features/auth/ownerAuthSelectors';
+import { HostellLogo } from '@/features/auth/HostellLogo';
 import { SignOutButton } from '@/features/auth/SignOutButton';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 
@@ -65,6 +66,7 @@ export function VerifyEmailScreen() {
 
   return (
     <View style={styles.container}>
+      <HostellLogo />
       <Text accessibilityRole="header" style={[styles.text, styles.title]}>
         Verify your email
       </Text>
@@ -81,21 +83,23 @@ export function VerifyEmailScreen() {
         </Text>
       ) : null}
 
-      <AppButton label="I’ve verified my email" loading={isChecking} onPress={check} />
-
-      <AppButton
-        variant="ghost"
-        size="sm"
-        label={
-          isSending
-            ? 'Sending…'
-            : cooldown > 0
-              ? `Resend verification email (${cooldown}s)`
-              : 'Resend verification email'
-        }
-        disabled={isSending || cooldown > 0}
-        onPress={resend}
-      />
+      <View style={styles.actions}>
+        <AppButton
+          style={styles.action}
+          label="I’ve verified"
+          accessibilityLabel="I’ve verified my email"
+          loading={isChecking}
+          onPress={check}
+        />
+        <AppButton
+          style={styles.action}
+          variant="secondary"
+          label={isSending ? 'Sending…' : cooldown > 0 ? `Resend (${cooldown}s)` : 'Resend email'}
+          accessibilityLabel="Resend verification email"
+          disabled={isSending || cooldown > 0}
+          onPress={resend}
+        />
+      </View>
 
       <SignOutButton />
     </View>
@@ -111,6 +115,8 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
     padding: Spacing.four,
   },
+  actions: { flexDirection: 'row', alignSelf: 'stretch', gap: Spacing.two },
+  action: { flex: 1 },
   text: { textAlign: 'center' },
   title: { fontSize: 24, fontWeight: '800', color: BrandColors.textPrimary },
   body: { fontSize: 15, lineHeight: 22, color: BrandColors.textSecondary },
