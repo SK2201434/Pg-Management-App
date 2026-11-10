@@ -23,7 +23,7 @@ describe("GET /api/public/properties", () => {
   it("returns items, nextCursor and hasMore, with only public fields", async () => {
     state.db = fakeFirestore([
       { id: "p1", data: listing({ ownerUid: "u1", contactPhone: "9876543210", contactName: "R", location: "1 Street" }) },
-      { id: "p2", data: listing({ listed: false }) },
+      { id: "p2", data: listing({ status: "inactive" }) },
       { id: "p3", data: listing({ name: "Third" }) },
     ]).db;
     const res = await call("?limit=2");

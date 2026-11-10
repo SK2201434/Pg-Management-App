@@ -3,6 +3,7 @@ import { collection, collectionGroup, doc, GeoPoint, getDoc, getDocs, query, whe
 import { getFirestoreDb } from '@/config/firebase';
 import { classifyLoadError, describeLoadError } from '@/features/discovery/loadError';
 import { parsePolicy } from '@/features/moveOut/moveOutModel';
+import { parseRules } from '@/features/properties/houseRulesModel';
 import { amenityLabel } from '@/features/properties/propertySetup';
 import type { StayRoom, TenantStay } from '@/features/tenantHome/tenantHomeModel';
 
@@ -66,6 +67,7 @@ export async function fetchTenantStay(uid: string, knownPropertyIds: readonly st
       checkOutMs: ms(member.data().checkOutAt),
       room,
       moveOutPolicy: parsePolicy(data.moveOutPolicy),
+      houseRules: parseRules(data.houseRules),
       amenities: Array.isArray(data.amenities) ? data.amenities.flatMap((k) => (typeof k === 'string' ? [amenityLabel(k) ?? []].flat() : [])) : [],
     };
   } catch (error) {
@@ -84,7 +86,7 @@ async function fetchOwnRoom(propertyId: string, uid: string): Promise<StayRoom |
     const data = snap.docs.find((d) => d.data().status !== 'ended')?.data();
     const roomNumber = text(data?.roomNumber);
     if (!data || roomNumber === null) return null;
-    return { roomNumber, bedLabel: text(data.bedLabel), sharing: typeof data.sharing === 'number' ? data.sharing : null, rentInr: typeof data.rentInr === 'number' && data.rentInr > 0 ? data.rentInr : null };
+    return { roomNumber, bedLabel: text(data.bedLabel), sharing: typeof data.sharing === 'number' ? data.sharing : null, rentInr: typeof data.rentInr === 'number' && data.rentInr > 0 ? data.rentInr : null, depositCollectedInr: data.depositCollected === true && typeof data.depositInr === 'number' && data.depositInr > 0 ? data.depositInr : null };
   } catch (error) {
     if (__DEV__) console.warn('[tenant-stay] room lookup failed', JSON.stringify(describeLoadError(error)));
     return null;
@@ -100,6 +102,19 @@ async function fetchOwnRoom(propertyId: string, uid: string): Promise<StayRoom |
 async function approvedRequestProperty(uid: string, known: readonly string[]): Promise<string | null> {
   const db = getFirestoreDb();
   let candidates: string[] = [];
+  // Memberships made without a stay request (an owner confirming a phone match) are found directly.
+  let fromMembers: string[] = [];
+  try {
+    const snap = await getDocs(query(collectionGroup(db, 'members'), where('tenantUid', '==', uid)));
+    fromMembers = snap.docs
+      .filter((d) => d.data().status === 'active' && typeof d.data().propertyId === 'string')
+      .map((d) => ({ id: d.data().propertyId as string, at: (d.data().joinedAt as { toMillis?: () => number } | undefined)?.toMillis?.() ?? 0 }))
+      .sort((a, b) => b.at - a.at)
+      .map((m) => m.id);
+  } catch (error) {
+    if (__DEV__) console.warn('[tenant-stay] membership lookup failed', JSON.stringify(describeLoadError(error)));
+    if (classifyLoadError(error) === 'network') throw error;
+  }
   try {
     const snap = await getDocs(query(collectionGroup(db, 'stayRequests'), where('tenantUid', '==', uid)));
     candidates = snap.docs
@@ -111,7 +126,7 @@ async function approvedRequestProperty(uid: string, known: readonly string[]): P
     if (__DEV__) console.warn('[tenant-stay] approved-request lookup failed', JSON.stringify(describeLoadError(error)));
     if (classifyLoadError(error) === 'network') throw error;
   }
-  for (const id of [...new Set([...candidates, ...known])]) {
+  for (const id of [...new Set([...fromMembers, ...candidates, ...known])]) {
     try {
       if ((await getDoc(doc(db, 'properties', id, 'members', uid))).exists()) return id;
     } catch (error) {

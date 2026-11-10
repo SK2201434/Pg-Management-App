@@ -10,6 +10,7 @@ import { APP_TAGLINE } from '@/constants/brand';
 import { BrandColors } from '@/constants/theme';
 import { getAuthErrorMessage } from '@/features/auth/authErrorMessage';
 import { HostellLogo } from '@/features/auth/HostellLogo';
+import { REFERRAL_UI_ENABLED } from '@/features/referral/referralFlag';
 import { selectOwner } from '@/features/auth/ownerAuthSelectors';
 import { logoutOwnerThunk } from '@/features/auth/ownerAuthSlice';
 import { initialsOf } from '@/features/profile/profileModel';
@@ -103,20 +104,22 @@ export function OwnerMoreScreen() {
         </View>
       </View>
 
-      <Pressable
-        accessibilityRole="button"
-        accessibilityLabel="Refer and earn"
-        onPress={() => router.push({ pathname: '/owner/profile', params: { tab: 'refer' } })}
-        style={({ pressed }) => [styles.refer, pressed && styles.pressed]}>
-        <View style={styles.referIcon}>
-          <MaterialIcons name="card-giftcard" size={22} color={BrandColors.accent} />
-        </View>
-        <View style={styles.flex}>
-          <Text style={styles.referTitle}>Refer & Earn</Text>
-          <Text style={styles.referText}>Share your HOSTELL invite link and follow who signs up. Rewards are not part of HOSTELL yet.</Text>
-        </View>
-        <MaterialIcons name="chevron-right" size={22} color={BrandColors.accent} />
-      </Pressable>
+      {REFERRAL_UI_ENABLED ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Refer and earn"
+          onPress={() => router.push({ pathname: '/owner/profile', params: { tab: 'refer' } })}
+          style={({ pressed }) => [styles.refer, pressed && styles.pressed]}>
+          <View style={styles.referIcon}>
+            <MaterialIcons name="card-giftcard" size={22} color={BrandColors.accent} />
+          </View>
+          <View style={styles.flex}>
+            <Text style={styles.referTitle}>Refer & Earn</Text>
+            <Text style={styles.referText}>Share your HOSTELL invite link and follow who signs up. Rewards are not part of HOSTELL yet.</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={22} color={BrandColors.accent} />
+        </Pressable>
+      ) : null}
 
       <Section title="Management">
         <Row icon="apartment" title="My Properties" subtitle={propertyLine} onPress={() => router.navigate('/owner/properties')} />

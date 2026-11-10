@@ -2,6 +2,8 @@ import { updateProfile } from 'firebase/auth';
 import { deleteField, doc, getDoc, serverTimestamp, updateDoc } from 'firebase/firestore';
 
 import { getFirebaseAuth, getFirestoreDb } from '@/config/firebase';
+import { isValidPhone } from '@/features/auth/phone';
+import { ensureTenantPhoneLookup, removeTenantPhoneLookup } from '@/features/auth/tenantPhoneLookup';
 import type { EditableProfile } from '@/features/profile/profileModel';
 
 /** What the profile page shows, read from `users/{uid}`. Authorization fields are read-only here. */
@@ -40,11 +42,22 @@ export async function fetchAccountProfile(uid: string): Promise<AccountProfile> 
 export async function saveAccountProfile(uid: string, input: EditableProfile): Promise<void> {
   const phone = input.phone.trim();
   const displayName = input.displayName.trim();
-  await updateDoc(doc(getFirestoreDb(), 'users', uid), {
+  const profileRef = doc(getFirestoreDb(), 'users', uid);
+  const before = (await getDoc(profileRef)).data() ?? {};
+  await updateDoc(profileRef, {
     displayName,
     phone: phone === '' ? deleteField() : phone,
     updatedAt: serverTimestamp(),
   });
+  // A tenant's phone lookup follows their profile (best effort: the profile save has already succeeded).
+  if (before.role === 'tenant') {
+    try {
+      if (isValidPhone(before.phone) && before.phone !== phone) await removeTenantPhoneLookup(uid, before.phone);
+      if (isValidPhone(phone)) await ensureTenantPhoneLookup(uid, phone, displayName);
+    } catch {
+      // The gate re-syncs it on the next launch.
+    }
+  }
   try {
     const user = getFirebaseAuth().currentUser;
     if (user && user.uid === uid) await updateProfile(user, { displayName });

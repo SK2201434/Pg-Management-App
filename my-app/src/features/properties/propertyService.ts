@@ -63,10 +63,12 @@ export async function fetchOwnerProperties(ownerUid: string): Promise<Property[]
     );
     return snapshot.docs
       .map((d) => {
-        const data = d.data() as { name?: unknown; location?: unknown; setupStatus?: unknown; status?: unknown; geo?: unknown; photos?: unknown };
+        const data = d.data() as { name?: unknown; location?: unknown; setupStatus?: unknown; status?: unknown; geo?: unknown; photos?: unknown; createdAt?: unknown };
+        const created = data.createdAt as { toMillis?: () => number } | undefined;
         return {
           id: d.id,
           ownerUid,
+          createdMs: typeof created?.toMillis === 'function' ? created.toMillis() : null,
           name: typeof data.name === 'string' ? data.name : '',
           location:
             typeof data.location === 'string' && data.location.trim() ? data.location.trim() : null,
@@ -179,6 +181,39 @@ export async function fetchPropertyRooms(propertyId: string, ownerUid: string): 
     );
   } catch (error) {
     throw toRequestError(error);
+  }
+}
+
+/**
+ * Makes every bed's `occupied` flag match the property's bed claims. New claims set the flag in the
+ * same batch (see residentService); this repairs beds claimed before the flag existed. Best effort:
+ * a failure is logged in development and never thrown.
+ */
+export async function syncBedOccupancy(ownerUid: string, propertyIds: readonly string[]): Promise<void> {
+  const db = getFirestoreDb();
+  for (const propertyId of propertyIds) {
+    try {
+      const claimed = await fetchBedOccupants(propertyId, ownerUid);
+      const rooms = await getDocs(query(collection(db, 'properties', propertyId, 'rooms'), where('ownerUid', '==', ownerUid)));
+      let batch = writeBatch(db);
+      let pending = 0;
+      for (const room of rooms.docs) {
+        const beds = await getDocs(query(collection(room.ref, 'beds'), where('ownerUid', '==', ownerUid)));
+        for (const bed of beds.docs) {
+          if ((bed.data().occupied === true) === claimed.has(bed.id)) continue;
+          batch.update(bed.ref, { occupied: claimed.has(bed.id), updatedAt: serverTimestamp() });
+          pending += 1;
+          if (pending >= 400) {
+            await batch.commit();
+            batch = writeBatch(db);
+            pending = 0;
+          }
+        }
+      }
+      if (pending > 0) await batch.commit();
+    } catch (error) {
+      if (__DEV__) console.warn('[bed-occupancy] sync failed', (error as { code?: unknown } | null)?.code);
+    }
   }
 }
 

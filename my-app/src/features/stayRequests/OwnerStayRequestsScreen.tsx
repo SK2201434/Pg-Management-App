@@ -10,6 +10,8 @@ import { formatMoveOutDate, MOVE_OUT_LABEL } from '@/features/moveOut/moveOutMod
 import type { OwnerMoveOutRequest } from '@/features/moveOut/moveOutService';
 import { useDecideMoveOut, useOwnerMoveOutRequests } from '@/features/moveOut/useMoveOut';
 import { telUrl } from '@/features/tenantHome/stayModel';
+import { declinedMatches, placementOf, type PhoneMatch } from '@/features/phoneMatch/phoneMatchModel';
+import { usePhoneMatchActions, usePhoneMatches } from '@/features/phoneMatch/usePhoneMatches';
 import { decideStayRequest, useStayRequests } from '@/features/stayRequests/stayRequestsLive';
 import { pendingCount, sortStayRequests, STATUS_TEXT, type OwnerStayRequest } from '@/features/stayRequests/stayRequestsModel';
 
@@ -21,6 +23,11 @@ export function OwnerStayRequestsScreen() {
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const moveOuts = useOwnerMoveOutRequests();
+  const allMatches = usePhoneMatches().matches;
+  const phoneMatches = allMatches.filter((m) => !m.declined);
+  const verifyMatches = declinedMatches(allMatches);
+  const matchActions = usePhoneMatchActions();
+  const [matchBusy, setMatchBusy] = useState<string | null>(null);
   const decideMoveOut = useDecideMoveOut();
   const moveOutItems = [...(moveOuts.data ?? [])].sort((a, b) => Number(b.status === 'pending') - Number(a.status === 'pending') || (b.updatedMs ?? Number.MAX_SAFE_INTEGER) - (a.updatedMs ?? Number.MAX_SAFE_INTEGER));
   const items = sortStayRequests(live.items);
@@ -44,6 +51,30 @@ export function OwnerStayRequestsScreen() {
       { request: r, status },
       { onError: () => setError('Could not save your decision. Check your connection and try again.') },
     );
+  };
+
+  const linkMatch = async (m: PhoneMatch) => {
+    const ok = await confirm({
+      title: 'Link this account?',
+      message: `${m.tenantName} will be linked to ${m.residentName}${placementOf(m) ? ` (${placementOf(m)})` : ''} and will see their stay details in the app. Only do this if it is the same person.`,
+      confirmLabel: 'Link account',
+    });
+    if (!ok) return;
+    setMatchBusy(m.id);
+    setError(null);
+    matchActions.link.mutate(m, {
+      onError: () => setError('Could not link the account. Check your connection and try again.'),
+      onSettled: () => setMatchBusy(null),
+    });
+  };
+
+  const dismissMatch = (m: PhoneMatch) => {
+    setMatchBusy(m.id);
+    setError(null);
+    matchActions.dismiss.mutate(m, {
+      onError: () => setError('Could not save your choice. Check your connection and try again.'),
+      onSettled: () => setMatchBusy(null),
+    });
   };
 
   const decline = async (r: OwnerStayRequest) => {
@@ -77,6 +108,23 @@ export function OwnerStayRequestsScreen() {
           ListHeaderComponent={
             <View>
               {error ? <Text style={styles.error} accessibilityRole="alert">{error}</Text> : null}
+              {verifyMatches.length > 0 ? (
+                <View style={styles.moveOuts}>
+                  <Text style={styles.sectionLabel}>Verify your tenants’ details</Text>
+                  {verifyMatches.map((m) => (
+                    <VerifyTenantCard key={m.id} match={m} />
+                  ))}
+                </View>
+              ) : null}
+              {phoneMatches.length > 0 ? (
+                <View style={styles.moveOuts}>
+                  <Text style={styles.sectionLabel}>Confirm your tenants</Text>
+                  {phoneMatches.map((m) => (
+                    <PhoneMatchCard key={m.id} match={m} busy={matchBusy === m.id} onLink={() => void linkMatch(m)} onDismiss={() => dismissMatch(m)} />
+                  ))}
+                  {items.length > 0 && moveOutItems.length === 0 ? <Text style={styles.sectionLabel}>Stay requests</Text> : null}
+                </View>
+              ) : null}
               {moveOutItems.length > 0 ? (
                 <View style={styles.moveOuts}>
                   <Text style={styles.sectionLabel}>Move-out requests</Text>
@@ -99,6 +147,43 @@ export function OwnerStayRequestsScreen() {
         />
       )}
       {dialog}
+    </View>
+  );
+}
+
+// The tenant said the phone number the owner entered is not theirs. It stays until the owner corrects the details
+// (the number moves, so this match goes away) or unassigns the bed.
+function VerifyTenantCard({ match: m }: { match: PhoneMatch }) {
+  return (
+    <View style={[styles.card, styles.cardAlert]}>
+      <Text style={styles.title} numberOfLines={1}>{m.residentName}</Text>
+      <Text style={styles.body}>
+        {m.tenantName} says the phone number you entered for {m.residentName}
+        {placementOf(m) ? ` (${placementOf(m)})` : ''} at {m.propertyName} is not theirs. Please verify the details: correct the number, or unassign the bed.
+      </Text>
+      <AppButton label="Open tenant" size="sm" onPress={() => router.push({ pathname: '/owner/tenants/[tenantId]', params: { tenantId: m.residentId, propertyId: m.propertyId } })} />
+    </View>
+  );
+}
+
+function PhoneMatchCard({ match: m, busy, onLink, onDismiss }: { match: PhoneMatch; busy: boolean; onLink: () => void; onDismiss: () => void }) {
+  const call = telUrl(m.phone);
+  return (
+    <View style={[styles.card, styles.cardPending]}>
+      <Text style={styles.title} numberOfLines={1}>{m.tenantName}</Text>
+      <Text style={styles.body}>
+        created a HOSTELL account with the phone number of your tenant {m.residentName}
+        {placementOf(m) ? ` (${placementOf(m)})` : ''} at {m.propertyName}. Please confirm their details.
+      </Text>
+      <View style={styles.row}>
+        <Text style={[styles.muted, styles.flex]}>{m.phone}</Text>
+        {call ? <AppButton label="Call" icon="call" size="sm" variant="secondary" onPress={() => Linking.openURL(call).catch(() => {})} /> : null}
+      </View>
+      <Text style={styles.muted}>Phone numbers are not verified, so check that it is the same person before linking.</Text>
+      <View style={styles.row}>
+        <AppButton label="Not them" variant="secondary" size="sm" disabled={busy} onPress={onDismiss} style={styles.flex} />
+        <AppButton label="Link account" size="sm" loading={busy} onPress={onLink} style={styles.flex} />
+      </View>
     </View>
   );
 }
@@ -161,6 +246,7 @@ const styles = StyleSheet.create({
   separator: { height: 12 },
   card: { gap: 8, padding: 16, borderRadius: 16, backgroundColor: BrandColors.surface, borderWidth: 1, borderColor: BrandColors.border },
   cardPending: { backgroundColor: '#E3EEEA', borderColor: '#CFE0DA' },
+  cardAlert: { backgroundColor: BrandColors.errorTint, borderColor: BrandColors.error },
   title: { fontSize: 16, fontWeight: '800', color: BrandColors.textPrimary },
   muted: { fontSize: 13, lineHeight: 19, textAlign: 'left', color: BrandColors.textSecondary },
   body: { fontSize: 14, lineHeight: 21, color: BrandColors.textPrimary },

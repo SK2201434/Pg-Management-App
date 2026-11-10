@@ -5,7 +5,10 @@ import { AppButton } from '@/components/app-button';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Spacing } from '@/constants/theme';
+import { AccountRoles } from '@/constants/account';
 import { BrandedLoading } from '@/features/auth/BrandedLoading';
+import { PhoneRequiredScreen } from '@/features/auth/PhoneRequiredScreen';
+import { ensureTenantPhoneLookup } from '@/features/auth/tenantPhoneLookup';
 import { SignOutButton } from '@/features/auth/SignOutButton';
 import { ProfileSetupScreen } from '@/features/auth/ProfileSetupScreen';
 import { ProfileReadError } from '@/features/auth/userProfile';
@@ -48,9 +51,16 @@ export function ProfileGate({ children }: { children: ReactNode }) {
   }
 
   if (data?.state === 'ready') {
+    // Every account needs a valid 10-digit phone (older ones may lack it): ask once, before anything else.
+    if (!data.profile.phone) {
+      return <PhoneRequiredScreen uid={data.profile.uid} displayName={data.profile.displayName} onDone={() => refetch()} />;
+    }
     return (
       <>
         <InviteCompletionSync uid={data.profile.uid} />
+        {data.profile.role === AccountRoles.Tenant ? (
+          <TenantPhoneSync uid={data.profile.uid} phone={data.profile.phone} displayName={data.profile.displayName ?? 'Tenant'} />
+        ) : null}
         {children}
       </>
     );
@@ -85,6 +95,14 @@ function InviteCompletionSync({ uid }: { uid: string }) {
   useEffect(() => {
     completeInviteReferral(uid);
   }, [uid]);
+  return null;
+}
+
+// Keeps the tenant's phone lookup (what lets an owner find a match) in step with their profile. Best effort.
+function TenantPhoneSync({ uid, phone, displayName }: { uid: string; phone: string; displayName: string }) {
+  useEffect(() => {
+    ensureTenantPhoneLookup(uid, phone, displayName).catch(() => {});
+  }, [uid, phone, displayName]);
   return null;
 }
 

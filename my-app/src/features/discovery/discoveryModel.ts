@@ -1,9 +1,8 @@
 // Pure model of property discovery and stay requests. No React, no Firebase.
 //
 // Firestore shape (see firestore.rules):
-//   publicListings/{propertyId}                 what an owner chose to publish: ownerUid, listed, name, propertyType?, location,
-//                                               city, state, postalCode, description?, coverUrl?, rentMinInr?,
-//                                               rentMaxInr?, sharingOptions[], contactName?, contactPhone?, updatedAt
+//   properties/{propertyId}                     read directly by tenants once `setupStatus == 'ready'` and not switched off
+//   properties/{pid}/rooms/{id}/beds/{id}       readable by tenants; a bed's `occupied` flag shows availability
 //   properties/{pid}/stayRequests/{tenantUid}   one request per tenant per property: tenantUid, ownerUid, propertyId,
 //                                               tenantName, tenantPhone?, message?, status, createdAt, updatedAt
 
@@ -35,6 +34,8 @@ export type Listing = {
   sharingOptions: number[];
   contactName: string | null;
   contactPhone: string | null;
+  /** The owner's rules and regulations, in the owner's order. Empty for listings published before this existed. */
+  houseRules: string[];
 };
 
 /** One sharing type of a property, e.g. all of its 2-sharing rooms. */
@@ -51,7 +52,20 @@ export type RoomType = {
 export const STAY_REQUEST_STATUSES = ['pending', 'approved', 'rejected', 'withdrawn'] as const;
 export type StayRequestStatus = 'pending' | 'approved' | 'rejected' | 'withdrawn';
 
-export type StayRequest = { status: StayRequestStatus; message: string | null };
+export type StayRequest = {
+  status: StayRequestStatus;
+  message: string | null;
+  /** When the request last changed (for a declined one: when the owner declined it). */
+  decidedMs: number | null;
+};
+
+/** How long a tenant waits after an owner declines before they may ask the same property again. */
+export const REREQUEST_WAIT_DAYS = 7;
+const REREQUEST_WAIT_MS = REREQUEST_WAIT_DAYS * 86_400_000;
+
+/** When a declined tenant may send a new request, or null when the request was not declined. */
+export const requestAgainMs = (existing: StayRequest | null): number | null =>
+  existing?.status === 'rejected' && existing.decidedMs !== null ? existing.decidedMs + REREQUEST_WAIT_MS : null;
 
 export const MESSAGE_MAX = 300;
 /** Most photos a listing carries (4 property photos + 4 room photos). */
@@ -106,36 +120,7 @@ export function roomTypesOf(rooms: readonly { sharing: number; ac: boolean; rent
 /** "AC", "Non-AC" or "AC & non-AC". */
 export const acLabel = (t: Pick<RoomType, 'rooms' | 'acRooms'>): string => (t.acRooms === 0 ? 'Non-AC' : t.acRooms === t.rooms ? 'AC' : 'AC & non-AC');
 
-/** What the owner publishes, derived from the property and its rooms. Only configured values are included. */
-export function buildListing(args: {
-  property: { name: string; propertyType?: PropertyType | null; location: string | null; city: string | null; state: string | null; postalCode: string | null; description: string | null; coverUrl: string | null; photoUrls?: readonly string[]; contactName: string | null; contactPhone: string | null };
-  rooms: readonly { sharing: number; ac: boolean; rentPerBedInr: number | null; beds: readonly { status: string; occupant: string | null }[] }[];
-  amenities?: readonly string[];
-  shareContact: boolean;
-}): Omit<Listing, 'id' | 'ownerUid' | 'updatedMs'> {
-  const rents = args.rooms.map((r) => r.rentPerBedInr).filter((r): r is number => r !== null);
-  const { property: p } = args;
-  return {
-    name: p.name,
-    propertyType: p.propertyType ?? null,
-    location: p.location,
-    city: p.city,
-    state: p.state,
-    postalCode: p.postalCode,
-    description: p.description,
-    coverUrl: p.coverUrl,
-    photoUrls: [...new Set(p.photoUrls ?? [])].slice(0, MAX_LISTING_PHOTOS),
-    rentMinInr: rents.length ? Math.min(...rents) : null,
-    rentMaxInr: rents.length ? Math.max(...rents) : null,
-    roomTypes: roomTypesOf(args.rooms),
-    amenities: [...new Set(args.amenities ?? [])],
-    sharingOptions: [...new Set(args.rooms.map((r) => r.sharing))].sort((a, b) => a - b),
-    contactName: args.shareContact ? p.contactName : null,
-    contactPhone: args.shareContact ? p.contactPhone : null,
-  };
-}
-
-/** Whether an owner's property belongs in public discovery: finished setup and not switched off. */
+/** Whether a property belongs in tenant discovery: finished setup and not switched off. */
 export const isListable = (p: { status?: unknown; setupStatus?: unknown }): boolean => p.status !== 'inactive' && p.setupStatus !== 'draft';
 
 export const REQUEST_LABEL: Record<StayRequestStatus, string> = {
@@ -146,7 +131,11 @@ export const REQUEST_LABEL: Record<StayRequestStatus, string> = {
 };
 
 /** Whether the tenant may send (or re-send) a request given the one they already have. */
-export const canRequest = (existing: StayRequest | null): boolean => existing === null || existing.status === 'withdrawn';
+export function canRequest(existing: StayRequest | null, nowMs: number): boolean {
+  if (existing === null || existing.status === 'withdrawn') return true;
+  const again = requestAgainMs(existing);
+  return again !== null && nowMs >= again;
+}
 
 export const whatsAppUrl = (phone: string | null): string | null => {
   const digits = phone?.replace(/\D/g, '') ?? '';

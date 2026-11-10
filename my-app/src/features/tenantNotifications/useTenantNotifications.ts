@@ -9,7 +9,8 @@ import { selectOwner } from '@/features/auth/ownerAuthSelectors';
 import { useStayChange } from '@/features/stayChange/useStayChange';
 import { useAppSelector } from '@/store/hooks';
 import { useMyRentReminders } from '@/features/rent/useRentReminders';
-import { buildRentReminderNotifications, buildStayChangeNotifications, buildStayDecisionNotifications, buildTenantNotifications, type TenantNotification } from '@/features/tenantNotifications/tenantNotificationsModel';
+import { useStayConfirmationPending } from '@/features/tenantHome/stayConfirmation';
+import { buildRentReminderNotifications, buildStayChangeNotifications, buildStayConfirmationNotifications, buildStayDecisionNotifications, buildTenantNotifications, type TenantNotification } from '@/features/tenantNotifications/tenantNotificationsModel';
 import { useReadMarks } from '@/features/tenantNotifications/useReadMarks';
 
 export type TenantNotificationItem = TenantNotification & { read: boolean };
@@ -29,6 +30,7 @@ export function useTenantNotifications() {
   const reminders = useMyRentReminders(stay.data?.state === 'active' ? stay.data.propertyId : undefined);
   const active = stay.data?.state === 'active' ? stay.data : null;
   const myRequests = useMyStayRequestViews();
+  const confirmationPending = useStayConfirmationPending(stay.data?.state);
   const nameMap = useMemo(() => new Map(myRequests.items.flatMap((r) => (r.propertyName ? [[r.propertyId, r.propertyName] as [string, string]] : []))), [myRequests.items]);
 
   const items = useMemo<TenantNotificationItem[] | null>(() => {
@@ -42,10 +44,10 @@ export function useTenantNotifications() {
     // Rent reminders the owner sent (a failed read just means none are shown).
     const rent = active === null ? [] : buildRentReminderNotifications(reminders.data ?? [], active.propertyName);
     const change = active === null ? [] : buildStayChangeNotifications(stayChange.data ?? null, active.propertyName);
-    return [...own, ...decisions, ...rent, ...change]
+    return [...own, ...decisions, ...rent, ...change, ...buildStayConfirmationNotifications(confirmationPending)]
       .sort((a, b) => (b.atMs ?? Number.MAX_SAFE_INTEGER) - (a.atMs ?? Number.MAX_SAFE_INTEGER) || a.id.localeCompare(b.id))
       .map((n) => ({ ...n, read: read.has(n.id) }));
-  }, [stay.isPending, reads.isPending, reads.data, active, requests.isPending, requests.data, updates.isPending, updates.items, myRequests.items, nameMap, reminders.data, stayChange.data]);
+  }, [stay.isPending, reads.isPending, reads.data, active, requests.isPending, requests.data, updates.isPending, updates.items, myRequests.items, nameMap, reminders.data, stayChange.data, confirmationPending]);
 
   const unread = items ? items.filter((n) => !n.read).length : 0;
   return {

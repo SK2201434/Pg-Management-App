@@ -224,7 +224,14 @@ function SummaryCard({ property, roomsData }: { property: PropertyDetail; roomsD
             {badgeInfo.label}
           </Text>
         </View>
-        <AppButton variant="secondary" size="sm" icon="edit" label="Edit" disabled onPress={() => undefined} accessibilityLabel="Edit property (not available yet)" />
+        <AppButton
+          variant="secondary"
+          size="sm"
+          icon="edit"
+          label="Edit"
+          accessibilityLabel={`Edit ${property.name}`}
+          onPress={() => router.push({ pathname: '/owner/properties/[propertyId]/edit', params: { propertyId: property.id } })}
+        />
       </View>
       <View style={styles.summaryRow}>
         <View style={styles.thumb}>

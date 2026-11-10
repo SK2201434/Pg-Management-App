@@ -1,13 +1,15 @@
 import { deleteField, doc, getDoc, serverTimestamp, Timestamp, writeBatch } from 'firebase/firestore';
 
+import { residentMarkerRef } from '@/features/phoneMatch/phoneMatchService';
+
 import { isGender, type Gender } from '@/constants/account';
 
 import { getFirestoreDb } from '@/config/firebase';
-import { fetchBedOccupants, toRequestError } from '@/features/properties/propertyService';
+import { toRequestError } from '@/features/properties/propertyService';
 import { nextDueMs, periodOf } from '@/features/rent/reminderModel';
 import { startOfDay, type PaymentMethod } from '@/features/rent/rentModel';
-import { ensureRentCharge, recordPayment } from '@/features/rent/rentService';
-import type { NewResident, ResidentEdit } from '@/features/tenants/addTenantModel';
+import { ensureRentCharge, fetchPayments, fetchRentCharges, recordPayment } from '@/features/rent/rentService';
+import { bedClaimIsOurs, type NewResident, type ResidentEdit } from '@/features/tenants/addTenantModel';
 
 /** The chosen bed is no longer free (blocked, or another resident holds it). */
 export class BedUnavailableError extends Error {
@@ -89,12 +91,19 @@ export async function createResident(propertyId: string, ownerUid: string, input
 async function addResident(propertyId: string, ownerUid: string, input: ResidentInput): Promise<void> {
   const db = getFirestoreDb();
   const bedRef = doc(db, 'properties', propertyId, 'rooms', input.roomId, 'beds', input.bedId);
-  const heldBy = async () => (await fetchBedOccupants(propertyId, ownerUid)).get(input.bedId);
+  const allocationRef = doc(db, 'properties', propertyId, 'bedAllocations', input.bedId);
+  // Who holds the bed: the resident id on its claim, or null when it is free.
+  const holder = async (): Promise<string | null> => {
+    const claim = await getDoc(allocationRef);
+    const data = claim.data();
+    return claim.exists() && data?.ownerUid === ownerUid ? (typeof data.residentId === 'string' ? data.residentId : '') : null;
+  };
 
   try {
-    const existing = await heldBy();
-    if (existing !== undefined) {
-      if (existing === input.name) return; // an earlier attempt of this same save went through
+    const claimedBy = await holder();
+    if (claimedBy !== null) {
+      // The same save (same resident id) already went through; anyone else, even with the same name, holds the bed.
+      if (bedClaimIsOurs(claimedBy, input.residentId)) return;
       throw new BedUnavailableError();
     }
     const bed = await getDoc(bedRef);
@@ -105,7 +114,6 @@ async function addResident(propertyId: string, ownerUid: string, input: Resident
   }
 
   const residentRef = doc(db, 'properties', propertyId, 'residents', input.residentId);
-  const allocationRef = doc(db, 'properties', propertyId, 'bedAllocations', input.bedId);
   const batch = writeBatch(db);
   batch.set(residentRef, {
     ownerUid,
@@ -126,7 +134,7 @@ async function addResident(propertyId: string, ownerUid: string, input: Resident
       : {}),
     ...(input.link ? { tenantUid: input.link.tenantUid } : {}),
     rentInr: input.rentInr,
-    ...(input.depositInr !== null ? { depositInr: input.depositInr } : {}),
+    ...(input.depositInr !== null ? { depositInr: input.depositInr, depositCollected: input.depositCollected } : {}),
     moveInDate: Timestamp.fromMillis(input.moveInMs),
     status: 'active',
     createdAt: serverTimestamp(),
@@ -140,6 +148,11 @@ async function addResident(propertyId: string, ownerUid: string, input: Resident
     residentName: input.name,
     createdAt: serverTimestamp(),
   });
+  // Tenants browsing the property see availability from this flag (they cannot read `bedAllocations`).
+  batch.update(bedRef, { occupied: true, updatedAt: serverTimestamp() });
+  // A resident added by hand has no account yet: leave a marker on their number, so that if they register
+  // with it their app can say their owner has to confirm them. (A tenant added from a stay request already has one.)
+  if (!input.link) batch.set(residentMarkerRef(input.phone, input.residentId), { ownerUid });
   if (input.link) {
     const { tenantUid, tenantName } = input.link;
     // Approve the request and make the tenant a member (checked in from their move-in date), together
@@ -160,10 +173,57 @@ async function addResident(propertyId: string, ownerUid: string, input: Resident
     await batch.commit();
   } catch (error) {
     try {
-      if ((await heldBy()) === input.name) return;
+      if (bedClaimIsOurs(await holder(), input.residentId)) return;
     } catch {
       // Fall through to the original error.
     }
+    throw toRequestError(error);
+  }
+}
+
+/** The tenant has rent charges or payments on record, so removing them would leave those records orphaned. */
+export class ResidentHasRentRecordsError extends Error {
+  constructor() {
+    super('This tenant has rent records.');
+    this.name = 'ResidentHasRentRecordsError';
+  }
+}
+
+/**
+ * Unassigns the bed of a tenant the owner added by hand (and has no account): the resident, their bed claim and
+ * their phone marker are removed and the bed is free again, in one batch. For a mistaken entry. Refused when
+ * the tenant is linked to an account (their stay and requests depend on it) or has rent records (the dashboard
+ * would keep showing rent owed by someone who no longer exists).
+ */
+export async function removeResident(propertyId: string, ownerUid: string, residentId: string): Promise<void> {
+  const db = getFirestoreDb();
+  const residentRef = doc(db, 'properties', propertyId, 'residents', residentId);
+  try {
+    const snap = await getDoc(residentRef);
+    const data = snap.data();
+    if (!snap.exists() || data?.ownerUid !== ownerUid || data.propertyId !== propertyId) throw new Error('resident-not-found');
+    if (data.tenantUid !== undefined) throw new Error('resident-linked');
+    const [charges, payments] = await Promise.all([fetchRentCharges(propertyId, ownerUid), fetchPayments(propertyId, ownerUid)]);
+    if (charges.some((c) => c.tenantUid === residentId) || payments.some((p) => p.tenantUid === residentId)) throw new ResidentHasRentRecordsError();
+
+    const batch = writeBatch(db);
+    batch.delete(residentRef);
+    const bedId = typeof data.bedId === 'string' ? data.bedId : null;
+    const roomId = typeof data.roomId === 'string' ? data.roomId : null;
+    if (bedId) {
+      const claimRef = doc(db, 'properties', propertyId, 'bedAllocations', bedId);
+      const claim = await getDoc(claimRef);
+      // Only this resident's own claim is released.
+      if (claim.exists() && claim.data().residentId === residentId) batch.delete(claimRef);
+      if (roomId) batch.update(doc(db, 'properties', propertyId, 'rooms', roomId, 'beds', bedId), { occupied: false, updatedAt: serverTimestamp() });
+    }
+    if (typeof data.phone === 'string') {
+      const marker = residentMarkerRef(data.phone, residentId);
+      if ((await getDoc(marker)).exists()) batch.delete(marker);
+    }
+    await batch.commit();
+  } catch (error) {
+    if (error instanceof ResidentHasRentRecordsError || (error instanceof Error && /^resident-/.test(error.message))) throw error;
     throw toRequestError(error);
   }
 }
@@ -177,6 +237,8 @@ export type ResidentDetail = {
   emergencyName: string | null;
   emergencyPhone: string | null;
   depositInr: number | null;
+  /** The owner recorded the deposit as received. Residents added before this existed read as not collected. */
+  depositCollected: boolean;
   roomId: string | null;
   bedId: string | null;
   moveInMs: number | null;
@@ -205,6 +267,7 @@ export async function fetchResidentDetail(propertyId: string, residentId: string
       emergencyName: str(d.emergencyName),
       emergencyPhone: str(d.emergencyPhone),
       depositInr: typeof d.depositInr === 'number' ? d.depositInr : null,
+      depositCollected: d.depositCollected === true,
       roomId: str(d.roomId),
       bedId: str(d.bedId),
       moveInMs: typeof moved?.toMillis === 'function' ? moved.toMillis() : null,
@@ -228,8 +291,20 @@ export async function updateResident(
   edit: ResidentEdit,
 ): Promise<void> {
   const db = getFirestoreDb();
+  const residentRef = doc(db, 'properties', propertyId, 'residents', residentId);
   const batch = writeBatch(db);
-  batch.update(doc(db, 'properties', propertyId, 'residents', residentId), {
+  // A resident still waiting for an account keeps their marker on their current number.
+  try {
+    const before = (await getDoc(residentRef)).data();
+    if (before && before.tenantUid === undefined && before.phone !== edit.phone) {
+      const old = residentMarkerRef(String(before.phone), residentId);
+      if ((await getDoc(old)).exists()) batch.delete(old);
+      batch.set(residentMarkerRef(edit.phone, residentId), { ownerUid: before.ownerUid });
+    }
+  } catch {
+    // The edit itself still goes ahead; the marker is repaired the next time suggestions load.
+  }
+  batch.update(residentRef, {
     name: edit.name,
     phone: edit.phone,
     email: edit.email ?? deleteField(),

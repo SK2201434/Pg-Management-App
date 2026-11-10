@@ -3,6 +3,7 @@ import type { ComponentProps, ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 import { AppButton } from '@/components/app-button';
+import { useScrollToError } from '@/components/form-error-scroll';
 import { BrandColors } from '@/constants/theme';
 
 type FieldProps = ComponentProps<typeof TextInput> & {
@@ -15,8 +16,9 @@ type FieldProps = ComponentProps<typeof TextInput> & {
 };
 
 export function Field({ label, error, optional, hint, labelAction, style, ...input }: FieldProps) {
+  const anchor = useScrollToError(error);
   return (
-    <View style={styles.field}>
+    <View ref={anchor} collapsable={false} style={styles.field}>
       <View style={styles.labelRow}>
         <Text style={styles.label}>
           {label}

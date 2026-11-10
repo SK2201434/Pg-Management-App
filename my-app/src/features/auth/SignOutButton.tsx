@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 
 import { AppButton } from '@/components/app-button';
 import { ThemedText } from '@/components/themed-text';
@@ -10,7 +10,7 @@ import { BrandColors } from '@/constants/theme';
 
 // Signs out of Firebase. On success the auth observer updates Redux and OwnerAuthGate returns to
 // the login screen; on failure the owner stays signed in and the error is shown here.
-export function SignOutButton() {
+export function SignOutButton({ fullWidth = false }: { /** Fills an equal share of a row (or the width of a column). */ fullWidth?: boolean }) {
   const dispatch = useAppDispatch();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,7 +27,7 @@ export function SignOutButton() {
     }
   };
 
-  return (
+  const content = (
     <>
       <AppButton
         variant="secondary"
@@ -43,6 +43,8 @@ export function SignOutButton() {
       ) : null}
     </>
   );
+  // In a row the button and its error stay together and share the row equally.
+  return fullWidth ? <View style={styles.stretch}>{content}</View> : content;
 }
 
-const styles = StyleSheet.create({ error: { color: BrandColors.error } });
+const styles = StyleSheet.create({ error: { color: BrandColors.error, textAlign: 'center' }, stretch: { flex: 1 } });

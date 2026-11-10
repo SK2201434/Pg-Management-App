@@ -1,11 +1,13 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppButton } from '@/components/app-button';
 import { BrandColors } from '@/constants/theme';
+import { digitsOnly, PHONE_DIGITS } from '@/features/auth/phone';
 import { Field } from '@/features/properties/addProperty/formParts';
 import { validateProfile, type EditableProfile, type ProfileErrors } from '@/features/profile/profileModel';
+import { ErrorScrollView } from '@/components/form-error-scroll';
 
 type Props = {
   initial: EditableProfile;
@@ -39,12 +41,12 @@ export function EditProfileSheet({ initial, email, busy, submitError, onSubmit, 
           <Text accessibilityRole="header" style={styles.title}>
             Edit profile
           </Text>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.form}>
+          <ErrorScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.form}>
             <Field label="Full name" value={displayName} onChangeText={setDisplayName} maxLength={100} autoCapitalize="words" error={errors.displayName} />
-            <Field label="Phone number" optional value={phone} onChangeText={setPhone} keyboardType="phone-pad" maxLength={20} error={errors.phone} hint="Not verified by HOSTELL." />
+            <Field label="Phone number" value={phone} onChangeText={(t) => setPhone(digitsOnly(t))} keyboardType="number-pad" maxLength={PHONE_DIGITS} error={errors.phone} hint="10 digits. Not verified by HOSTELL." />
             {email ? <Text style={styles.note}>Email: {email}. It can’t be changed here.</Text> : null}
             {submitError ? <Text style={styles.error}>{submitError}</Text> : null}
-          </ScrollView>
+          </ErrorScrollView>
           <View style={styles.actions}>
             <AppButton variant="secondary" label="Cancel" disabled={busy} onPress={onClose} style={styles.action} />
             <AppButton label="Save" loading={busy} onPress={submit} style={styles.action} />

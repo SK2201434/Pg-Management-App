@@ -30,7 +30,9 @@ import { AlreadyRemindedError } from '@/features/rent/reminderService';
 import { useSendRentReminder } from '@/features/rent/useRentReminders';
 import { latestRow, mailUrl, pickPayableCharge, telUrl, totalOutstanding, whatsAppUrl } from '@/features/tenants/tenantDetailsModel';
 import { EditTenantSheet } from '@/features/tenants/EditTenantSheet';
-import { useResidentDetail, useUpdateResident } from '@/features/tenants/useAddResident';
+import { useRemoveResident, useResidentDetail, useUpdateResident } from '@/features/tenants/useAddResident';
+import { ResidentHasRentRecordsError } from '@/features/tenants/residentService';
+import { useConfirm } from '@/components/confirm-dialog';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
 
@@ -68,6 +70,8 @@ function Content({ property, tenantId }: { property: PropertyDetail; tenantId: s
   const tenant = tenants.data?.find((t) => t.tenantUid === tenantId) ?? null;
   const resident = useResidentDetail(property.id, tenantId, tenant?.source === 'added');
   const update = useUpdateResident(property.id, tenantId, resident.data?.bedId ?? null);
+  const remove = useRemoveResident(property.id, tenantId);
+  const { confirm, dialog } = useConfirm();
   // Changing the room or bed is a proposal the tenant must accept (they need an app account to answer).
   const [stayOpen, setStayOpen] = useState(false);
   const stayChange = useStayChange(property.id, tenant?.accountUid);
@@ -297,7 +301,8 @@ function Content({ property, tenantId }: { property: PropertyDetail; tenantId: s
               </View>
             </View>
           )}
-          {detail?.depositInr != null ? (
+          {/* A deposit already collected is shown under Stay details; here only one still to collect. */}
+          {detail?.depositInr != null && !detail.depositCollected ? (
             <Tile label="Security deposit (agreed)" value={formatInr(detail.depositInr)} note="Recorded as agreed, not as collected." />
           ) : null}
         </View>
@@ -353,6 +358,7 @@ function Content({ property, tenantId }: { property: PropertyDetail; tenantId: s
                 />
               </View>
               {tenant.joinedAtMs !== null ? <Tile label="Move-in date" value={formatDate(tenant.joinedAtMs)} /> : null}
+              {detail?.depositInr != null && detail.depositCollected ? <Tile label="Security deposit (collected)" value={formatInr(detail.depositInr)} note="Recorded as received by you." /> : null}
             </>
           ) : (
             <Text style={styles.muted}>
@@ -455,12 +461,38 @@ function Content({ property, tenantId }: { property: PropertyDetail; tenantId: s
         />
       ) : null}
 
+      {dialog}
       <OptionSheet
         visible={menu}
         title={tenant.name}
         onClose={() => setMenu(false)}
         options={[
           { label: 'Refresh', icon: 'refresh', onPress: refresh },
+          // For a tenant entered by hand who has no account (for example, a mistaken entry): frees their bed.
+          ...(tenant.source === 'added' && !tenant.accountUid
+            ? [{
+                label: 'Unassign bed',
+                icon: 'person-remove' as const,
+                onPress: async () => {
+                  const ok = await confirm({
+                    title: 'Unassign this bed?',
+                    message: `${tenant.name} will be removed from ${property.name} and their bed will be free again. Use this for a tenant added by mistake.`,
+                    confirmLabel: 'Unassign bed',
+                    destructive: true,
+                  });
+                  if (!ok) return;
+                  remove.mutate(undefined, {
+                    onSuccess: goToTenants,
+                    onError: (error) =>
+                      setBanner(
+                        error instanceof ResidentHasRentRecordsError
+                          ? 'This tenant has rent records, so their bed can’t be unassigned here. Correct their details instead.'
+                          : 'Could not unassign the bed. Check your connection and try again.',
+                      ),
+                  });
+                },
+              }]
+            : []),
           { label: 'All tenants of this property', icon: 'group', onPress: () => router.push({ pathname: '/owner/properties/[propertyId]/tenants', params: { propertyId: property.id } }) },
         ]}
       />

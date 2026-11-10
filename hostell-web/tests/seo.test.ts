@@ -97,11 +97,11 @@ describe("structured data", () => {
 });
 
 describe("fetchPublicPropertyIndex", () => {
-  it("returns id and last update for listed, usable properties, reading only the fields it needs", async () => {
+  it("returns id and last update for browsable, usable properties, reading only the fields it needs", async () => {
     const { db, calls } = fakeFirestore([
       { id: "a", data: listing() },
-      { id: "b", data: listing({ listed: false }) },
-      { id: "c", data: { listed: true } },
+      { id: "b", data: listing({ status: "inactive" }) },
+      { id: "c", data: { setupStatus: "ready" } },
       { id: "d", data: listing({ ownerUid: "secret" }) },
     ]);
     const index = await fetchPublicPropertyIndex(db, 100);
@@ -109,9 +109,10 @@ describe("fetchPublicPropertyIndex", () => {
       { id: "a", updatedAt: null },
       { id: "d", updatedAt: null },
     ]);
-    expect(calls.collections).toEqual(["publicListings"]);
-    expect(calls.where).toEqual([["listed", "==", true]]);
-    expect(calls.select).toEqual([["listed", "name", "updatedAt"]]);
+    expect(calls.collections).toEqual(["properties"]);
+    expect(calls.where).toEqual([]);
+    expect(calls.select).toEqual([["setupStatus", "status", "name", "updatedAt"]]);
+    expect(calls.roomReads).toEqual([]);
     expect(calls.limits).toEqual([100]);
   });
 });

@@ -19,6 +19,8 @@ export type Property = {
   hasGeo: boolean;
   /** Download URL of the display image (the first property photo), if any. */
   coverUrl: string | null;
+  /** When the property was registered in HOSTELL (ms since epoch). Rent is only counted from this date. */
+  createdMs?: number | null;
 };
 
 /** Bed totals of the portfolio. Computed from room/bed records once that module exists. */

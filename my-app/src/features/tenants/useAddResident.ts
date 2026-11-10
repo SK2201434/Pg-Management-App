@@ -1,10 +1,9 @@
-import { syncListing } from '@/features/discovery/discoveryService';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { selectOwner } from '@/features/auth/ownerAuthSelectors';
 import { ownerPropertiesQueryKey } from '@/features/properties/usePropertyQueries';
 import type { ResidentEdit } from '@/features/tenants/addTenantModel';
-import { createResident, fetchResidentDetail, updateResident, type AddResidentResult, type ResidentInput } from '@/features/tenants/residentService';
+import { createResident, fetchResidentDetail, removeResident, updateResident, type AddResidentResult, type ResidentInput } from '@/features/tenants/residentService';
 import { useAppSelector } from '@/store/hooks';
 
 /**
@@ -17,8 +16,6 @@ export function useAddResident(propertyId: string) {
   return useMutation<AddResidentResult, Error, ResidentInput>({
     mutationFn: (input) => createResident(propertyId, ownerUid as string, input),
     onSuccess: () => {
-      // A resident takes or frees a bed, which the public listing shows as availability.
-      if (ownerUid) void syncListing(propertyId, ownerUid);
       return queryClient.invalidateQueries({ queryKey: ownerPropertiesQueryKey(ownerUid) });
     },
   });
@@ -47,9 +44,17 @@ export function useUpdateResident(propertyId: string, residentId: string, bedId:
       return updateResident(propertyId, residentId, bedId, nameChanged, edit);
     },
     onSuccess: () => {
-      // A resident takes or frees a bed, which the public listing shows as availability.
-      if (ownerUid) void syncListing(propertyId, ownerUid);
       return queryClient.invalidateQueries({ queryKey: ownerPropertiesQueryKey(ownerUid) });
     },
+  });
+}
+
+/** Unassigns a hand-added tenant's bed, then refreshes everything under the owner's properties. */
+export function useRemoveResident(propertyId: string, residentId: string) {
+  const ownerUid = useAppSelector(selectOwner)?.uid;
+  const queryClient = useQueryClient();
+  return useMutation<void, Error, void>({
+    mutationFn: () => removeResident(propertyId, ownerUid as string, residentId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ownerPropertiesQueryKey(ownerUid) }),
   });
 }

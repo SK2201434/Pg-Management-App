@@ -1,6 +1,6 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppButton } from '@/components/app-button';
@@ -15,6 +15,7 @@ import {
   type EditTenantErrors,
   type EditTenantForm,
 } from '@/features/tenants/addTenantModel';
+import { ErrorScrollView } from '@/components/form-error-scroll';
 
 type Props = {
   /** The saved values the form starts from (read fresh each time the sheet opens). */
@@ -70,7 +71,7 @@ export function EditTenantSheet({ initial, stay, busy, submitError, onSave, onCl
             </Pressable>
           </View>
 
-          <ScrollView keyboardShouldPersistTaps="handled" style={styles.body} contentContainerStyle={styles.form}>
+          <ErrorScrollView keyboardShouldPersistTaps="handled" style={styles.body} contentContainerStyle={styles.form}>
             <SectionTitle icon="person" title="Personal details" />
             <Field label="Full name" value={form.name} onChangeText={(name) => set({ name })} maxLength={100} autoCapitalize="words" error={errors.name} />
             <View style={styles.phoneRow}>
@@ -115,7 +116,7 @@ export function EditTenantSheet({ initial, stay, busy, submitError, onSave, onCl
               </View>
             </View>
             {submitError ? <Text style={styles.error}>{submitError}</Text> : null}
-          </ScrollView>
+          </ErrorScrollView>
 
           <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
             {confirmingDiscard ? (

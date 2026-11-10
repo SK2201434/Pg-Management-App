@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppButton } from '@/components/app-button';
@@ -16,6 +16,7 @@ import {
   type ChargeErrors,
   type RentCharge,
 } from '@/features/rent/rentModel';
+import { ErrorScrollView, ErrorText } from '@/components/form-error-scroll';
 
 type Props = {
   tenants: readonly PropertyTenant[];
@@ -64,7 +65,7 @@ export function AddChargeSheet({ tenants, existing, onSubmit, onClose, busy, sub
           <Text accessibilityRole="header" style={styles.title}>
             Add rent charge
           </Text>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.form}>
+          <ErrorScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.form}>
             <View style={styles.group}>
               <Text style={styles.label}>Tenant</Text>
               <View style={styles.chips}>
@@ -76,7 +77,7 @@ export function AddChargeSheet({ tenants, existing, onSubmit, onClose, busy, sub
                     }} />
                 ))}
               </View>
-              {errors.tenantUid ? <Text style={styles.error}>{errors.tenantUid}</Text> : null}
+              <ErrorText style={styles.error}>{errors.tenantUid}</ErrorText>
             </View>
             <View style={styles.group}>
               <Text style={styles.label}>Billing month</Text>
@@ -90,7 +91,7 @@ export function AddChargeSheet({ tenants, existing, onSubmit, onClose, busy, sub
             <Field label="Rent for the month (₹)" value={amount} onChangeText={setAmount} keyboardType="number-pad" maxLength={9} error={errors.amount} />
             <Field label="Due date (YYYY-MM-DD)" value={dueDate} onChangeText={setDueDate} maxLength={10} autoCapitalize="none" error={errors.dueDate} />
             {submitError ? <Text style={styles.error}>{submitError}</Text> : null}
-          </ScrollView>
+          </ErrorScrollView>
           <View style={styles.actions}>
             <AppButton variant="secondary" label="Cancel" disabled={busy} onPress={onClose} style={styles.action} />
             <AppButton label="Add charge" loading={busy} onPress={submit} style={styles.action} />

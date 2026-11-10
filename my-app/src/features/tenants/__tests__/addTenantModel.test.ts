@@ -1,4 +1,4 @@
-import { isEditDirty, normalizePhone, parseDeposit, toNewResident, toResidentEdit, validateAddTenant, validateEditTenant, type AddTenantForm, type EditTenantForm, prefillFromRequest } from '@/features/tenants/addTenantModel';
+import { bedClaimIsOurs, isEditDirty, normalizePhone, parseDeposit, toNewResident, toResidentEdit, validateAddTenant, validateEditTenant, type AddTenantForm, type EditTenantForm, prefillFromRequest } from '@/features/tenants/addTenantModel';
 
 const NOW = new Date(2026, 9, 20, 12).getTime();
 const valid: AddTenantForm = {
@@ -14,6 +14,7 @@ const valid: AddTenantForm = {
   bedId: 'b1',
   rent: '6,000',
   deposit: '',
+  depositCollected: false,
   moveInMs: NOW,
 };
 
@@ -51,6 +52,12 @@ describe('shaping', () => {
     const r = toNewResident({ ...valid, email: ' A@B.CO ', deposit: '12,000' });
     expect(r).toMatchObject({ name: 'Rahul Sharma', phone: '9876543210', email: 'a@b.co', rentInr: 6000, depositInr: 12000, address: null });
   });
+  it('records the deposit as collected only when an amount is entered and it is ticked', () => {
+    expect(toNewResident({ ...valid, deposit: '12,000', depositCollected: true }).depositCollected).toBe(true);
+    expect(toNewResident({ ...valid, deposit: '12,000', depositCollected: false }).depositCollected).toBe(false);
+    // Ticked, then the amount was cleared: nothing was collected.
+    expect(toNewResident({ ...valid, deposit: '', depositCollected: true }).depositCollected).toBe(false);
+  });
 });
 
 describe('edit tenant', () => {
@@ -85,5 +92,16 @@ describe('prefillFromRequest', () => {
     expect(prefillFromRequest(' Asha Rao ', '+91 98765 43210')).toEqual({ name: 'Asha Rao', phone: '9876543210' });
     expect(prefillFromRequest('Asha', '12345')).toEqual({ name: 'Asha', phone: '' });
     expect(prefillFromRequest(null, null)).toEqual({ name: '', phone: '' });
+  });
+});
+
+describe('bedClaimIsOurs', () => {
+  it('is true only when the claim is held by this very resident id', () => {
+    expect(bedClaimIsOurs('res-1', 'res-1')).toBe(true);
+  });
+  it('is false for another resident, even one with the same name, and for a free bed', () => {
+    expect(bedClaimIsOurs('res-2', 'res-1')).toBe(false);
+    expect(bedClaimIsOurs('', 'res-1')).toBe(false);
+    expect(bedClaimIsOurs(null, 'res-1')).toBe(false);
   });
 });

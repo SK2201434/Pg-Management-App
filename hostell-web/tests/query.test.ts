@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { decodeCursor, encodeCursor, InvalidCursorError } from "@/lib/listings/cursor";
 import { fetchPublicProperties, InvalidLimitError, InvalidSearchError, parseLimit, parseSearch, PUBLIC_COLLECTION, searchPublicProperties } from "@/lib/listings/query";
-import { fakeFirestore, listing } from "./helpers";
+import { fakeFirestore, listing, sharingRooms } from "./helpers";
 
 const ids = (n: number) => Array.from({ length: n }, (_, i) => `p${String(i).padStart(3, "0")}`);
 const docs = (list: string[]) => list.map((id) => ({ id, data: listing({ name: `PG ${id}` }) }));
@@ -41,18 +41,43 @@ describe("cursor", () => {
 });
 
 describe("fetchPublicProperties", () => {
-  it("queries only publicListings, filtered to listed == true", async () => {
+  it("queries only properties, and reads rooms (never beds) for the properties it shows", async () => {
     const { db, calls } = fakeFirestore(docs(ids(3)));
     await fetchPublicProperties(db, { limit: 12, cursor: null });
-    expect(calls.collections).toEqual([PUBLIC_COLLECTION]);
-    expect(calls.where).toEqual([["listed", "==", true]]);
+    expect(PUBLIC_COLLECTION).toBe("properties");
+    expect([...new Set(calls.collections)]).toEqual([PUBLIC_COLLECTION]);
+    expect(calls.where).toEqual([]);
+    expect(calls.roomReads.sort()).toEqual(ids(3));
+    expect(calls.bedReads).toEqual([]);
   });
 
-  it("never returns an unlisted document", async () => {
-    const all = [...docs(["a1"]), { id: "a2", data: listing({ listed: false }) }, { id: "a3", data: listing({ listed: undefined }) }];
-    const { db } = fakeFirestore(all);
+  it("builds the rent range and sharing options from the rooms", async () => {
+    const rooms = [
+      { id: "r1", data: { sharing: 3, ac: false, rentPerBedInr: 4000 } },
+      { id: "r2", data: { sharing: 1, ac: true, rentPerBedInr: 9000 } },
+    ];
+    const { db } = fakeFirestore([{ id: "a1", data: listing(), rooms }]);
     const page = await fetchPublicProperties(db, { limit: 12, cursor: null });
-    expect(page.items.map((i) => i.id)).toEqual(["a1"]);
+    expect(page.items[0]).toMatchObject({ sharingOptions: [1, 3], rentMinInr: 4000, rentMaxInr: 9000, roomTypes: [] });
+  });
+
+  it("still shows a property whose rooms cannot be read, without rent or sharing", async () => {
+    const { db } = fakeFirestore(docs(["a1"]), { failRooms: new Error("boom") });
+    const page = await fetchPublicProperties(db, { limit: 12, cursor: null });
+    expect(page.items[0]).toMatchObject({ id: "a1", sharingOptions: [], rentMinInr: null });
+  });
+
+  it("never returns a draft or switched-off property, and keeps ones that predate setupStatus", async () => {
+    const all = [
+      ...docs(["a1"]),
+      { id: "a2", data: listing({ status: "inactive" }) },
+      { id: "a3", data: listing({ setupStatus: "draft" }) },
+      { id: "a4", data: { name: "Legacy PG" } },
+    ];
+    const { db, calls } = fakeFirestore(all);
+    const page = await fetchPublicProperties(db, { limit: 12, cursor: null });
+    expect(page.items.map((i) => i.id)).toEqual(["a1", "a4"]);
+    expect(calls.roomReads.sort()).toEqual(["a1", "a4"]); // rooms of hidden properties are never read
   });
 
   it("returns a next cursor when more results exist and null when they do not", async () => {
@@ -89,12 +114,23 @@ describe("fetchPublicProperties", () => {
   });
 
   it("keeps advancing past an unusable document without repeating items", async () => {
-    const all = docs(ids(4)).map((d, i) => (i === 1 ? { ...d, data: { listed: true } } : d)); // no name
+    const all = docs(ids(4)).map((d, i) => (i === 1 ? { ...d, data: { setupStatus: "ready" } } : d)); // no name
     const { db } = fakeFirestore(all);
     const first = await fetchPublicProperties(db, { limit: 2, cursor: null });
     const second = await fetchPublicProperties(db, { limit: 2, cursor: first.nextCursor });
     const seen = [...first.items, ...second.items].map((i) => i.id);
     expect(seen).toEqual(["p000", "p002", "p003"]);
+  });
+
+  it("reads past drafts and switched-off properties so a page is still full", async () => {
+    const all = ids(8).map((id, i) => ({ id, data: i % 2 === 1 ? listing({ status: "inactive" }) : listing({ name: `PG ${id}` }) }));
+    const { db } = fakeFirestore(all);
+    const first = await fetchPublicProperties(db, { limit: 2, cursor: null });
+    expect(first.items.map((i) => i.id)).toEqual(["p000", "p002"]);
+    expect(first.hasMore).toBe(true);
+    const second = await fetchPublicProperties(db, { limit: 2, cursor: first.nextCursor });
+    expect(second.items.map((i) => i.id)).toEqual(["p004", "p006"]);
+    expect(second.hasMore).toBe(false);
   });
 
   it("rejects an invalid cursor before querying Firestore", async () => {
@@ -118,13 +154,13 @@ describe("parseSearch", () => {
 
 describe("searchPublicProperties", () => {
   const all = [
-    { id: "a1", data: listing({ name: "Green PG", city: "Hyderabad", sharingOptions: [2, 3] }) },
-    { id: "a2", data: listing({ name: "Blue Hostel", city: "Pune", state: "Maharashtra", sharingOptions: [1] }) },
-    { id: "a3", data: listing({ name: "Sunrise PG", city: "Pune", state: "Maharashtra", sharingOptions: [2, 6] }) },
-    { id: "a4", data: listing({ name: "Hidden", city: "Pune", listed: false }) },
+    { id: "a1", data: listing({ name: "Green PG", city: "Hyderabad" }), rooms: sharingRooms(2, 3) },
+    { id: "a2", data: listing({ name: "Blue Hostel", city: "Pune", state: "Maharashtra" }), rooms: sharingRooms(1) },
+    { id: "a3", data: listing({ name: "Sunrise PG", city: "Pune", state: "Maharashtra" }), rooms: sharingRooms(2, 6) },
+    { id: "a4", data: listing({ name: "Hidden", city: "Pune", status: "inactive" }) },
   ];
 
-  it("matches name, city or state and skips unlisted documents", async () => {
+  it("matches name, city or state and skips switched-off properties", async () => {
     const { db } = fakeFirestore(all);
     const byCity = await searchPublicProperties(db, { q: "pune", sharing: "", limit: 12, cursor: null });
     expect(byCity.items.map((i) => i.id)).toEqual(["a2", "a3"]);
@@ -155,9 +191,9 @@ describe("searchPublicProperties", () => {
 
   it("filters by property type, alone or with other filters, ignoring listings without one", async () => {
     const typed = [
-      { id: "t1", data: listing({ name: "A", propertyType: "Men's Hostel", sharingOptions: [2] }) },
-      { id: "t2", data: listing({ name: "B", propertyType: "Women's Hostel", sharingOptions: [2] }) },
-      { id: "t3", data: listing({ name: "C", propertyType: "Women's Hostel", sharingOptions: [3] }) },
+      { id: "t1", data: listing({ name: "A", propertyType: "Men's Hostel" }), rooms: sharingRooms(2) },
+      { id: "t2", data: listing({ name: "B", propertyType: "Women's Hostel" }), rooms: sharingRooms(2) },
+      { id: "t3", data: listing({ name: "C", propertyType: "Women's Hostel" }), rooms: sharingRooms(3) },
       { id: "t4", data: listing({ name: "D" }) },
       { id: "t5", data: listing({ name: "E", propertyType: "Spaceship" }) },
     ];
@@ -169,6 +205,17 @@ describe("searchPublicProperties", () => {
     expect(womenTwo.items.map((i) => i.id)).toEqual(["t2"]);
     const any = await searchPublicProperties(db, { q: "", sharing: "", limit: 12, cursor: null });
     expect(any.items).toHaveLength(5);
+  });
+
+  it("reads rooms only for properties that match the text, and stops once the page is full", async () => {
+    const { db, calls } = fakeFirestore([
+      ...docs(ids(30)),
+      { id: "zz", data: listing({ name: "Other", city: "Delhi" }) },
+    ]);
+    const page = await searchPublicProperties(db, { q: "pg", sharing: "", limit: 2, cursor: null });
+    expect(page.items).toHaveLength(2);
+    expect(calls.roomReads).not.toContain("zz");
+    expect(calls.roomReads.length).toBeLessThanOrEqual(12); // one batch, not the whole scan
   });
 
   it("returns an empty page when nothing matches", async () => {

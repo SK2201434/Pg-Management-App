@@ -3,8 +3,10 @@
 The public website for HOSTELL: browse hostel and PG listings, view a property, and learn about the app. It is
 read-only and has no sign-in. Built with Next.js (App Router), React and TypeScript.
 
-Listings are read on the server from the Firestore `publicListings` collection (only documents with `listed == true`)
-and returned through a small allowlist, so owner IDs, contact details and street-level locations are never exposed.
+Listings are read on the server (Admin SDK) from the owners' own Firestore `properties` documents and their `rooms`/`beds`
+subcollections. Drafts (`setupStatus == 'draft'`) and switched-off properties (`status == 'inactive'`) are skipped. There is no
+separately published copy: everything is returned through a small allowlist, so owner IDs, contact details, street-level
+locations, coordinates, house rules and bed claims (which name residents) are never exposed.
 
 ## Pages and API
 
@@ -28,7 +30,7 @@ npm run dev                  # http://localhost:3000
 
 All are server-only except the download URL. See `.env.example` for details.
 
-- `FIREBASE_PROJECT_ID`: the Firebase project that holds `publicListings`.
+- `FIREBASE_PROJECT_ID`: the Firebase project that holds `properties`.
 - `FIREBASE_SERVICE_ACCOUNT_PATH`, or `FIREBASE_CLIENT_EMAIL` with `FIREBASE_PRIVATE_KEY`: credentials for local development.
   On Google Cloud, leave these unset and Application Default Credentials are used.
 - `PUBLIC_LISTINGS_CACHE_SECONDS`: CDN cache time for listing pages (default 60, max 3600).

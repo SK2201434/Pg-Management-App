@@ -24,6 +24,8 @@ import { useMyStayRequestViews } from '@/features/discovery/useMyStayRequestView
 import { StayRequestsSection } from '@/features/requests/StayRequestsSection';
 import { useRefetchOnFocus } from '@/features/tenantHome/useRefetchOnFocus';
 import { useTenantStay } from '@/features/tenantHome/useTenantStay';
+import { StayConfirmationNotice } from '@/features/tenantHome/StayConfirmationNotice';
+import { useStayConfirmation } from '@/features/tenantHome/stayConfirmation';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
 
@@ -38,6 +40,7 @@ export function TenantStayScreen() {
   const stay = useTenantStay();
   const stayRequests = useMyStayRequestViews();
   useRefetchOnFocus(stay.refetch);
+  const confirmation = useStayConfirmation(stay.data?.state);
   const [now] = useState(Date.now);
   const [rulesOpen, setRulesOpen] = useState(false);
   const profile = useAccountProfile();
@@ -83,6 +86,9 @@ export function TenantStayScreen() {
     return (
       <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
         <StayRequestsSection items={stayRequests.items} />
+        {data.state === 'none' && confirmation.pending ? (
+          <StayConfirmationNotice variant="plain" onDecline={confirmation.decline} declining={confirmation.declining} failed={confirmation.declineFailed} />
+        ) : (
         <View style={styles.center}>
           <MaterialIcons name="home-work" size={32} color={BrandColors.textSecondary} />
           <Text style={styles.cardTitle}>No active stay</Text>
@@ -94,6 +100,7 @@ export function TenantStayScreen() {
                 : 'We could not find your property. Please try again later.'}
           </Text>
         </View>
+        )}
       </ScrollView>
     );
   }
@@ -235,6 +242,7 @@ export function TenantStayScreen() {
             action={staying && moveOut.data?.status !== 'approved' ? { label: 'Move out', icon: 'logout', onPress: () => { moveOutActions.send.reset(); setMoveOutOpen(true); } } : undefined}
           />
           {data.room?.rentInr ? <DetailRow icon="payments" label="Monthly rent" value={`${formatInr(data.room.rentInr)} / month`} note={data.room.bedLabel ? `Room ${data.room.roomNumber} · Bed ${data.room.bedLabel}` : `Room ${data.room.roomNumber}`} /> : null}
+          {data.room?.depositCollectedInr ? <DetailRow icon="savings" label="Security deposit" value={formatInr(data.room.depositCollectedInr)} note="Collected by your property" /> : null}
           <DetailRow icon="badge" label="Stay status" value={staying ? 'Active resident' : 'Stay ended'} />
           {data.contactName || data.contactPhone ? (
             <DetailRow
@@ -292,7 +300,16 @@ export function TenantStayScreen() {
         </Pressable>
         {rulesOpen ? (
           <View style={styles.card}>
-            <Text style={styles.muted}>Your property has not published house rules yet.</Text>
+            {data.houseRules && data.houseRules.length > 0 ? (
+              data.houseRules.map((rule, i) => (
+                <View key={`${i}-${rule}`} style={styles.ruleRow}>
+                  <Text style={styles.ruleNumber}>{i + 1}.</Text>
+                  <Text style={[styles.muted, styles.flex]}>{rule}</Text>
+                </View>
+              ))
+            ) : (
+              <Text style={styles.muted}>Your property has not published house rules yet.</Text>
+            )}
           </View>
         ) : null}
       </View>
@@ -373,6 +390,8 @@ const styles = StyleSheet.create({
   cardTitle: { fontSize: 16, fontWeight: '800', color: BrandColors.textPrimary },
   rowTitle: { fontSize: 14, fontWeight: '700', color: BrandColors.textPrimary },
   muted: { fontSize: 13, lineHeight: 19, color: BrandColors.textSecondary },
+  ruleRow: { flexDirection: 'row', gap: 8 },
+  ruleNumber: { fontSize: 13, lineHeight: 19, fontWeight: '700', color: BrandColors.textPrimary },
   mutedCenter: { fontSize: 13, lineHeight: 19, textAlign: 'center', color: BrandColors.textSecondary },
   link: { fontSize: 14, fontWeight: '700', color: BrandColors.accent },
   iconBox: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', backgroundColor: '#E8F0EE', overflow: 'hidden' },

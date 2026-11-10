@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppButton } from '@/components/app-button';
@@ -8,6 +8,7 @@ import { Chip, CountStepper, Field } from '@/features/properties/addProperty/for
 import { validateNewRoom, type NewRoomErrors } from '@/features/properties/propertyDetailsModel';
 import { MAX_SHARING, ROOM_NUMBER_MAX, newKey, type RoomDraft } from '@/features/properties/propertySetup';
 import type { PropertyRoom } from '@/features/properties/propertyTypes';
+import { ErrorScrollView, ErrorText } from '@/components/form-error-scroll';
 
 type Props = {
   rooms: readonly PropertyRoom[];
@@ -62,7 +63,7 @@ export function AddRoomSheet({ rooms, onSubmit, onClose, busy, submitError }: Pr
           <Text accessibilityRole="header" style={styles.title}>
             Add room
           </Text>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.form}>
+          <ErrorScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.form}>
             <Field
               label="Room number"
               value={roomNumber}
@@ -100,8 +101,8 @@ export function AddRoomSheet({ rooms, onSubmit, onClose, busy, submitError }: Pr
               maxLength={2}
               error={errors.floor}
             />
-            {errors.form ?? submitError ? <Text style={styles.error}>{errors.form ?? submitError}</Text> : null}
-          </ScrollView>
+            <ErrorText style={styles.error}>{errors.form ?? submitError}</ErrorText>
+          </ErrorScrollView>
           <View style={styles.actions}>
             <AppButton variant="secondary" label="Cancel" disabled={busy} onPress={onClose} style={styles.action} />
             <AppButton label="Add room" loading={busy} onPress={submit} style={styles.action} />

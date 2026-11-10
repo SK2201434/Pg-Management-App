@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { PHONE_ERROR } from '@/features/auth/phone';
+
 // Mirrors the backend constraints in backend/app/schemas/auth.py.
 
 // Emails are trimmed and lowercased before validation, for registration and login alike, so the
@@ -36,14 +38,9 @@ export type ForgotPasswordFormValues = z.infer<typeof forgotPasswordSchema>;
 export type OwnerRegisterFormValues = z.infer<typeof ownerRegisterSchema>;
 export type OwnerLoginFormValues = z.infer<typeof ownerLoginSchema>;
 
-// Optional: the phone number is collected by the form but not sent anywhere yet (Firebase email
-// registration has no phone field). When filled in it must look like a phone number.
-const phone = z
-  .string()
-  .trim()
-  .refine((value) => value === '' || /^\+?[0-9\s()-]{7,20}$/.test(value), {
-    message: 'Enter a valid phone number.',
-  });
+// Required: exactly ten digits. It is stored on the profile and used to match a tenant to the
+// resident an owner added with the same number.
+const phone = z.string({ error: PHONE_ERROR }).trim().regex(/^[0-9]{10}$/, PHONE_ERROR);
 
 // Form-only schema: `confirm_password` is validated on the client and never sent to the API.
 export const ownerRegisterFormSchema = ownerRegisterSchema

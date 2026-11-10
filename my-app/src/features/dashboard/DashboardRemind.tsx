@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Alert, Linking } from 'react-native';
 
-import type { PropertyData } from '@/features/dashboard/dashboardModel';
+import { missedMonthRows, type PropertyData } from '@/features/dashboard/dashboardModel';
 import type { AttentionRow } from '@/features/dashboard/dashboardTypes';
 import { RemindDialog } from '@/features/rent/RemindDialog';
 import { buildRentReminder, withMessage } from '@/features/rent/reminderModel';
@@ -28,8 +28,10 @@ function Inner({ row, data, nowMs, onClose }: { row: AttentionRow; data: readonl
   const reminder = useMemo(() => {
     if (!property || !tenant || !property.charges || !property.payments) return null;
     const ledger = buildLedger(property.charges, property.payments, new Map([[tenant.tenantUid, tenant.name]]), nowMs).filter((r) => r.charge.tenantUid === tenant.tenantUid);
+    // Months that fell due since the property was added but were never recorded count too, so the message totals them.
+    const missed = missedMonthRows(property, nowMs).filter((m) => m.tenant.tenantUid === tenant.tenantUid).map((m) => m.row);
     const schedule = tenant.status === 'active' && tenant.source === 'added' && tenant.joinedAtMs !== null && tenant.rentInr !== null ? { moveInMs: tenant.joinedAtMs, rentInr: tenant.rentInr } : null;
-    return buildRentReminder({ tenantName: tenant.name, propertyName: property.name, rows: ledger, nowMs, schedule });
+    return buildRentReminder({ tenantName: tenant.name, propertyName: property.name, rows: [...ledger, ...missed], nowMs, schedule });
   }, [property, tenant, nowMs]);
 
   const error = sendReminder.isError

@@ -17,6 +17,8 @@ import { ContactHostDialog } from '@/features/tenantHome/ContactHostDialog';
 import { UpdatesSwiper } from '@/features/tenantHome/UpdatesSwiper';
 import { RequestsSwiper } from '@/features/tenantHome/RequestsSwiper';
 import { useRefetchOnFocus } from '@/features/tenantHome/useRefetchOnFocus';
+import { StayConfirmationNotice } from '@/features/tenantHome/StayConfirmationNotice';
+import { useStayConfirmation } from '@/features/tenantHome/stayConfirmation';
 import { useTenantStay } from '@/features/tenantHome/useTenantStay';
 import { useTenantUpdates } from '@/features/tenantHome/useTenantUpdates';
 
@@ -34,6 +36,7 @@ export function TenantHomeScreen() {
   const requests = useTenantRequests(stay.data);
   const stayRequests = useMyStayRequestViews();
   useRefetchOnFocus(stay.refetch);
+  const confirmation = useStayConfirmation(stay.data?.state);
   // The host's number is the owner's contact on the property, shown only for an active stay.
   const hostCall = stay.data?.state === 'active' ? telUrl(stay.data.contactPhone) : null;
   const hostWhatsApp = stay.data?.state === 'active' ? whatsAppUrl(stay.data.contactPhone) : null;
@@ -82,7 +85,7 @@ export function TenantHomeScreen() {
         {stay.data?.state === 'active' ? <Text style={styles.muted}>{stay.data.propertyName}</Text> : null}
       </View>
 
-      <StayCard stay={stay} />
+      <StayCard stay={stay} confirmation={confirmation} />
 
       <Section title="Latest Updates" onViewAll={() => router.push('/tenant/updates')}>
         {updates.items.length > 0 ? (
@@ -111,7 +114,7 @@ export function TenantHomeScreen() {
   );
 }
 
-function StayCard({ stay }: { stay: ReturnType<typeof useTenantStay> }) {
+function StayCard({ stay, confirmation }: { stay: ReturnType<typeof useTenantStay>; confirmation: ReturnType<typeof useStayConfirmation> }) {
   if (stay.isPending) {
     return (
       <View style={[styles.card, styles.center]}>
@@ -131,6 +134,9 @@ function StayCard({ stay }: { stay: ReturnType<typeof useTenantStay> }) {
     );
   }
   const data = stay.data;
+  if (data.state === 'none' && confirmation.pending) {
+    return <StayConfirmationNotice onDecline={confirmation.decline} declining={confirmation.declining} failed={confirmation.declineFailed} />;
+  }
   if (data.state !== 'active') {
     const body =
       data.state === 'none'

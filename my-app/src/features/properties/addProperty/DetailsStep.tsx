@@ -8,6 +8,7 @@ import type { StepProps } from '@/features/properties/addProperty/stepTypes';
 import { getCurrentAddress, getCurrentAddressMessage } from '@/features/properties/currentAddress';
 import { parseGeo, splitCoordinatePair } from '@/features/properties/propertyLocation';
 import { AMENITIES, LIMITS, PROPERTY_TYPES } from '@/features/properties/propertySetup';
+import { ErrorText } from '@/components/form-error-scroll';
 
 export function DetailsStep({ form, update, errors, showErrors, locationError }: StepProps) {
   const [locating, setLocating] = useState(false);
@@ -82,7 +83,7 @@ export function DetailsStep({ form, update, errors, showErrors, locationError }:
             ))}
           </View>
           {showErrors && errors.propertyType ? (
-            <Text style={styles.typeError} accessibilityRole="alert">{errors.propertyType}</Text>
+            <ErrorText style={styles.typeError} accessibilityRole="alert">{errors.propertyType}</ErrorText>
           ) : null}
         </View>
         <Field

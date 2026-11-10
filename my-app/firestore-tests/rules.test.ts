@@ -41,6 +41,7 @@ const profile = (uid: string, role: 'owner' | 'tenant', extra: Record<string, un
   status: 'active',
   displayName: uid,
   email: `${uid}@example.com`,
+  phone: '9876543210',
   createdAt: serverTimestamp(),
   updatedAt: serverTimestamp(),
   ...extra,
@@ -133,6 +134,16 @@ describe('profile creation', () => {
     await assertSucceeds(setDoc(doc(ctx('o1'), 'users', 'o1'), profile('o1', 'owner')));
   });
 
+  it('requires a ten-digit phone number on a new profile', async () => {
+    const db = ctx('u1');
+    const { phone: _omit, ...withoutPhone } = profile('u1', 'tenant');
+    await assertFails(setDoc(doc(db, 'users', 'u1'), withoutPhone));
+    for (const bad of ['12345', '98765432101', '98765 43210', '+919876543210', 'abcdefghij']) {
+      await assertFails(setDoc(doc(db, 'users', 'u1'), profile('u1', 'tenant', { phone: bad })));
+    }
+    await assertSucceeds(setDoc(doc(db, 'users', 'u1'), profile('u1', 'tenant', { phone: '9123456789' })));
+  });
+
   it('never accepts a privileged or unknown role', async () => {
     for (const role of ['admin', 'superuser', '']) {
       await assertFails(setDoc(doc(ctx('u1'), 'users', 'u1'), profile('u1', role as 'owner', { accountType: role })));
@@ -220,6 +231,13 @@ describe('immutable role and status', () => {
     await assertFails(updateDoc(ref, { status: 'disabled', updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(ref, { email: 'other@example.com', updatedAt: serverTimestamp() }));
     await assertFails(updateDoc(ref, { referralCode: CODE, updatedAt: serverTimestamp() }));
+  });
+
+  it('keeps the phone number required and ten digits when a profile is edited', async () => {
+    const ref = doc(ctx('t1'), 'users', 't1');
+    await assertSucceeds(updateDoc(ref, { phone: '9000000001', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(ref, { phone: '123', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(ref, { phone: firebase.firestore.FieldValue.delete(), updatedAt: serverTimestamp() }));
   });
 
   it("denies editing someone else's profile and deleting any profile", async () => {
@@ -635,11 +653,12 @@ describe('cross-owner access and tenant privacy', () => {
     });
   });
 
-  it('keeps properties scoped to their owner (and their members)', async () => {
+  it('keeps property writes and private data scoped to the owner, while browsable properties are readable', async () => {
     await assertSucceeds(getDoc(doc(ctx('owner1'), 'properties', 'p1')));
-    await assertFails(getDoc(doc(ctx('owner1'), 'properties', 'p2')));
+    await assertSucceeds(getDoc(doc(ctx('owner1'), 'properties', 'p2'))); // browsable (no setupStatus counts as ready)
     await assertSucceeds(getDoc(doc(ctx('t1'), 'properties', 'p1')));
-    await assertFails(getDoc(doc(ctx('t1'), 'properties', 'p2')));
+    await assertFails(getDoc(doc(ctx('t1'), 'properties', 'p2', 'members', 't2'))); // another property's tenants stay private
+    await assertFails(getDoc(doc(ctx('owner1'), 'properties', 'p2', 'members', 't2')));
     await assertFails(updateDoc(doc(ctx('owner1'), 'properties', 'p2'), { name: 'x', updatedAt: serverTimestamp() }));
     await assertFails(deleteDoc(doc(ctx('owner1'), 'properties', 'p2')));
   });
@@ -770,25 +789,39 @@ describe('cross-owner access and tenant privacy', () => {
     await assertSucceeds(setDoc(ref('t1'), request()));
   });
 
-  it('lists only owner-published listings and lets a tenant request a stay only for a listed property', async () => {
-    const listing = (extra: Record<string, unknown> = {}) => ({
-      ownerUid: 'owner1', propertyId: 'p1', listed: true, name: 'Green PG', sharingOptions: [1, 2], updatedAt: serverTimestamp(), ...extra,
+  it('lets tenants browse finished, active properties with their rooms and beds, and request a stay only at one', async () => {
+    await seed(async (db) => {
+      const now = Timestamp.now();
+      await updateDoc(doc(db, 'properties', 'p1'), { setupStatus: 'ready' });
+      await updateDoc(doc(db, 'properties', 'p2'), { setupStatus: 'ready', status: 'inactive' });
+      for (const [property, owner] of [['p1', 'owner1'], ['p2', 'owner2']]) {
+        await setDoc(doc(db, 'properties', property, 'rooms', 'r1'), { ownerUid: owner, propertyId: property, roomNumber: '101', sharing: 2, ac: false, updatedAt: now });
+        await setDoc(doc(db, 'properties', property, 'rooms', 'r1', 'beds', 'b1'), { ownerUid: owner, propertyId: property, roomId: 'r1', label: 'Bed 1', status: 'available', updatedAt: now });
+        await setDoc(doc(db, 'properties', property, 'bedAllocations', 'b1'), { ownerUid: owner, propertyId: property, roomId: 'r1', bedId: 'b1', residentId: 'x', residentName: 'Asha', createdAt: now });
+      }
     });
-    const listings = (uid: string) => ctx(uid).collection('publicListings');
-    // Only the property's owner can publish, and only the allowed public fields.
-    await assertSucceeds(listings('owner1').doc('p1').set(listing()));
-    await assertFails(listings('owner2').doc('p1').set(listing({ ownerUid: 'owner2' })));
-    await assertFails(listings('t1').doc('p1').set(listing({ ownerUid: 't1' })));
-    await assertFails(listings('owner1').doc('p1').set(listing({ secretNotes: 'x' })));
-    await assertSucceeds(listings('owner2').doc('p2').set(listing({ ownerUid: 'owner2', propertyId: 'p2', listed: false })));
+    const properties = (uid: string) => ctx(uid).collection('properties');
 
-    // Anyone signed in reads listed ones; an unlisted one is only visible to its owner.
-    await assertSucceeds(listings('t1').where('listed', '==', true).get());
-    await assertSucceeds(getDoc(doc(ctx('t1'), 'publicListings', 'p1')));
-    await assertFails(getDoc(doc(ctx('t1'), 'publicListings', 'p2')));
-    await assertFails(listings('t1').get());
+    // A tenant lists finished properties (the query must say so), and reads one that is active.
+    await assertSucceeds(properties('t1').where('setupStatus', '==', 'ready').get());
+    await assertFails(properties('t1').get());
+    await assertSucceeds(getDoc(doc(ctx('t1'), 'properties', 'p1')));
+    await assertFails(getDoc(doc(ctx('t1'), 'properties', 'p2'))); // switched off
 
-    // A request: own uid as the document id, pending, for a listed property.
+    // Rooms and beds of a browsable property are visible; the claims naming residents are not.
+    await assertSucceeds(properties('t1').doc('p1').collection('rooms').get());
+    await assertSucceeds(properties('t1').doc('p1').collection('rooms').doc('r1').collection('beds').get());
+    await assertFails(properties('t1').doc('p2').collection('rooms').get());
+    await assertFails(properties('t1').doc('p1').collection('bedAllocations').get());
+    await assertFails(setDoc(doc(ctx('t1'), 'properties', 'p1', 'rooms', 'r2'), { ownerUid: 't1', propertyId: 'p1', roomNumber: '9', sharing: 1, ac: false, updatedAt: serverTimestamp() }));
+
+    // Only the owner marks a bed occupied.
+    const bed = (uid: string) => doc(ctx(uid), 'properties', 'p1', 'rooms', 'r1', 'beds', 'b1');
+    await assertSucceeds(updateDoc(bed('owner1'), { occupied: true, updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(bed('owner1'), { occupied: 'yes', updatedAt: serverTimestamp() }));
+    await assertFails(updateDoc(bed('t1'), { occupied: false, updatedAt: serverTimestamp() }));
+
+    // A request: own uid as the document id, pending, for a browsable property.
     const request = (tenant: string, extra: Record<string, unknown> = {}) => ({
       tenantUid: tenant, ownerUid: 'owner1', propertyId: 'p1', tenantName: tenant, status: 'pending',
       createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...extra,
@@ -815,7 +848,22 @@ describe('cross-owner access and tenant privacy', () => {
     await assertFails(updateDoc(ownerRef, { status: 'rejected', updatedAt: serverTimestamp() })); // already decided
     await assertFails(updateDoc(doc(ctx('owner2'), 'properties', 'p1', 'stayRequests', 't1'), { status: 'rejected', updatedAt: serverTimestamp() }));
     // Approval grants nothing: no membership appears and the tenant still cannot read tenant-only data.
-    await assertFails(getDoc(doc(ctx('t2'), 'properties', 'p1')));
+    await assertFails(getDoc(doc(ctx('t2'), 'properties', 'p1', 'members', 't1')));
+  });
+
+  it('lets a declined stay request be sent again only after 7 days', async () => {
+    await seed(async (db) => {
+      const now = Timestamp.now();
+      const eightDaysAgo = Timestamp.fromMillis(Date.now() - 8 * 86_400_000);
+      const twoDaysAgo = Timestamp.fromMillis(Date.now() - 2 * 86_400_000);
+      for (const [uid, at] of [['t4', eightDaysAgo], ['t5', twoDaysAgo]] as const) {
+        await setDoc(doc(db, 'users', uid), { ...profile(uid, 'tenant'), createdAt: now, updatedAt: now });
+        await setDoc(doc(db, 'properties', 'p1', 'stayRequests', uid), { tenantUid: uid, ownerUid: 'owner1', propertyId: 'p1', tenantName: uid, status: 'rejected', createdAt: at, updatedAt: at });
+      }
+    });
+    const mine = (uid: string) => doc(ctx(uid), 'properties', 'p1', 'stayRequests', uid);
+    await assertFails(updateDoc(mine('t5'), { status: 'pending', updatedAt: serverTimestamp() })); // declined 2 days ago
+    await assertSucceeds(updateDoc(mine('t4'), { status: 'pending', message: 'Hello again', updatedAt: serverTimestamp() })); // declined 8 days ago
   });
 
   it('lets a location lock be created once, only by the property’s owner', async () => {
@@ -915,7 +963,6 @@ describe('cross-owner access and tenant privacy', () => {
     await seed(async (db) => {
       const now = Timestamp.now();
       for (const [property, owner, tenant] of [['p1', 'owner1', 't1'], ['p2', 'owner2', 't2']]) {
-        await setDoc(doc(db, 'publicListings', property), { ownerUid: owner, propertyId: property, listed: true, name: property, sharingOptions: [], updatedAt: now });
         await setDoc(doc(db, 'properties', property, 'stayRequests', tenant), {
           tenantUid: tenant, ownerUid: owner, propertyId: property, tenantName: tenant, status: 'pending', createdAt: now, updatedAt: now,
         });
@@ -939,7 +986,6 @@ describe('cross-owner access and tenant privacy', () => {
       const now = Timestamp.now();
       await setDoc(doc(db, 'properties', 'p1', 'rooms', 'r1'), { ownerUid: 'owner1', propertyId: 'p1', roomNumber: '101', sharing: 2, ac: false, updatedAt: now });
       await setDoc(doc(db, 'properties', 'p1', 'rooms', 'r1', 'beds', 'b1'), { ownerUid: 'owner1', propertyId: 'p1', roomId: 'r1', label: 'Bed 1', status: 'available', updatedAt: now });
-      await setDoc(doc(db, 'publicListings', 'p1'), { ownerUid: 'owner1', propertyId: 'p1', listed: true, name: 'P', sharingOptions: [2], updatedAt: now });
       await setDoc(doc(db, 'properties', 'p1', 'stayRequests', 't3'), { tenantUid: 't3', ownerUid: 'owner1', propertyId: 'p1', tenantName: 't3', status: 'pending', createdAt: now, updatedAt: now });
       await setDoc(doc(db, 'users', 't3'), { ...profile('t3', 'tenant'), createdAt: now, updatedAt: now });
     });
@@ -988,5 +1034,179 @@ describe('cross-owner access and tenant privacy', () => {
   it('denies everything not explicitly allowed', async () => {
     await assertFails(getDoc(doc(ctx('owner1'), 'admins', 'owner1')));
     await assertFails(setDoc(doc(ctx('owner1'), 'admins', 'owner1'), { admin: true }));
+  });
+});
+
+describe('phone matching (a registered tenant and a resident the owner added)', () => {
+  const PHONE = '9876543210';
+  const lookupRef = (uid: string, phone = PHONE, as = uid) => doc(ctx(as), 'tenantPhones', phone, 'accounts', uid);
+
+  beforeEach(async () => {
+    await seed(async (db) => {
+      const now = Timestamp.now();
+      await setDoc(doc(db, 'users', 'owner1'), { ...profile('owner1', 'owner'), createdAt: now, updatedAt: now });
+      await setDoc(doc(db, 'users', 'owner2'), { ...profile('owner2', 'owner'), createdAt: now, updatedAt: now });
+      await setDoc(doc(db, 'users', 't1'), { ...profile('t1', 'tenant'), createdAt: now, updatedAt: now });
+      await setDoc(doc(db, 'users', 't2'), { ...profile('t2', 'tenant', { phone: '9000000002' }), createdAt: now, updatedAt: now });
+      await setDoc(doc(db, 'properties', 'p1'), { ownerUid: 'owner1', name: 'Sunrise PG', setupStatus: 'ready', createdAt: now, updatedAt: now });
+      // A resident the owner added by hand: same phone as t1, no account linked yet.
+      await setDoc(doc(db, 'properties', 'p1', 'residents', 'res1'), {
+        ownerUid: 'owner1', propertyId: 'p1', roomId: 'r1', bedId: 'b1', roomNumber: '101', bedLabel: 'Bed 1', sharing: 2,
+        name: 'Rahul', gender: 'male', phoneCountry: '+91', phone: PHONE, rentInr: 5000, moveInDate: now, status: 'active', createdAt: now,
+      });
+    });
+  });
+
+  it('lets a tenant write only their own lookup, for the phone on their own profile', async () => {
+    await assertSucceeds(setDoc(lookupRef('t1'), { uid: 't1', displayName: 't1' }));
+    await assertFails(setDoc(lookupRef('t1', '9111111111'), { uid: 't1', displayName: 't1' })); // not their number
+    await assertFails(setDoc(lookupRef('t1'), { uid: 't1', displayName: 'someone else' })); // name must match the profile
+    await assertFails(setDoc(lookupRef('t1'), { uid: 't1', displayName: 't1', email: 't1@example.com' })); // nothing more than uid and name
+    await assertFails(setDoc(doc(ctx('t2'), 'tenantPhones', PHONE, 'accounts', 't1'), { uid: 't1', displayName: 't1' })); // not their uid
+    await assertFails(setDoc(lookupRef('owner1', PHONE, 'owner1'), { uid: 'owner1', displayName: 'owner1' })); // owners keep no lookup
+  });
+
+  it('lets several accounts share a number, and an owner read the accounts under a number', async () => {
+    await seed(async (db) => updateDoc(doc(db, 'users', 't2'), { phone: PHONE }));
+    await assertSucceeds(setDoc(lookupRef('t1'), { uid: 't1', displayName: 't1' }));
+    await assertSucceeds(setDoc(lookupRef('t2'), { uid: 't2', displayName: 't2' }));
+    const owner = await assertSucceeds(ctx('owner1').collection('tenantPhones').doc(PHONE).collection('accounts').get());
+    expect(owner.size).toBe(2);
+    await assertFails(ctx('t1').collection('tenantPhones').doc(PHONE).collection('accounts').get()); // tenants cannot list
+    await assertSucceeds(getDoc(lookupRef('t1'))); // a tenant reads their own
+    await assertFails(getDoc(doc(ctx('t2'), 'tenantPhones', PHONE, 'accounts', 't1')));
+    await assertSucceeds(deleteDoc(lookupRef('t1')));
+    await assertFails(deleteDoc(doc(ctx('t2'), 'tenantPhones', PHONE, 'accounts', 't1')));
+  });
+
+  const memberDoc = (extra: Record<string, unknown> = {}) => ({
+    tenantUid: 't1', propertyId: 'p1', ownerUid: 'owner1', displayName: 't1', status: 'active', source: 'phone-match',
+    residentId: 'res1', joinedAt: serverTimestamp(), ...extra,
+  });
+  const link = (uid: string, member: Record<string, unknown> = memberDoc(), resident: Record<string, unknown> = { tenantUid: 't1' }) => {
+    const db = ctx(uid);
+    const batch = writeBatch(db);
+    batch.update(doc(db, 'properties', 'p1', 'residents', 'res1'), { ...resident, updatedAt: serverTimestamp() });
+    batch.set(doc(db, 'properties', 'p1', 'members', 't1'), member);
+    return batch.commit();
+  };
+
+  it('lets the owner link the resident to the matching account in one batch, and only then', async () => {
+    await assertFails(link('owner1')); // the tenant has not published a lookup yet
+    await assertSucceeds(setDoc(lookupRef('t1'), { uid: 't1', displayName: 't1' }));
+    await assertFails(link('owner2')); // not this property's owner
+    await assertFails(link('t1')); // a tenant cannot link themselves
+    await assertFails(link('owner1', memberDoc({ source: 'stay-request' }))); // must say it was a phone match
+    await assertFails(link('owner1', memberDoc({ displayName: 'Somebody Else' }))); // name comes from the lookup
+    await assertFails(link('owner1', memberDoc({ residentId: 'nope' })));
+    await assertFails(link('owner1', memberDoc(), { tenantUid: 't2' })); // resident and member must name the same tenant
+    await assertSucceeds(link('owner1'));
+    expect((await getDoc(doc(ctx('owner1'), 'properties', 'p1', 'residents', 'res1'))).data()?.tenantUid).toBe('t1');
+    await assertFails(link('owner1')); // a resident already linked cannot be linked again
+  });
+
+  it('lets a tenant list only their own memberships across properties', async () => {
+    await assertSucceeds(setDoc(lookupRef('t1'), { uid: 't1', displayName: 't1' }));
+    await assertSucceeds(link('owner1'));
+    const mine = await assertSucceeds(ctx('t1').collectionGroup('members').where('tenantUid', '==', 't1').get());
+    expect(mine.size).toBe(1);
+    await assertFails(ctx('t1').collectionGroup('members').where('tenantUid', '==', 't2').get());
+    await assertFails(ctx('t2').collectionGroup('members').get());
+  });
+
+  it('lets an owner record, once, a match they declined', async () => {
+    const ref = (uid: string, key = 'res1_t1') => doc(ctx(uid), 'users', uid, 'dismissedMatches', key);
+    await assertSucceeds(setDoc(ref('owner1'), { createdAt: serverTimestamp() }));
+    await assertFails(setDoc(ref('owner1'), { createdAt: serverTimestamp() })); // create-only
+    await assertFails(setDoc(doc(ctx('owner2'), 'users', 'owner1', 'dismissedMatches', 'x'), { createdAt: serverTimestamp() }));
+    await assertSucceeds(ctx('owner1').collection('users').doc('owner1').collection('dismissedMatches').get());
+    await assertFails(ctx('owner2').collection('users').doc('owner1').collection('dismissedMatches').get());
+  });
+});
+
+describe('resident phone markers (what tells a registering tenant their owner must confirm them)', () => {
+  const PHONE = '9876543210';
+  const entry = (uid: string, id = 'res1', phone = PHONE) => doc(ctx(uid), 'residentPhones', phone, 'entries', id);
+
+  beforeEach(async () => {
+    await seed(async (db) => {
+      const now = Timestamp.now();
+      for (const [uid, role] of [['owner1', 'owner'], ['owner2', 'owner'], ['t1', 'tenant']] as const) {
+        await setDoc(doc(db, 'users', uid), { ...profile(uid, role), createdAt: now, updatedAt: now });
+      }
+    });
+  });
+
+  it('lets an owner create a marker for their own residents and delete it, and nobody else touch it', async () => {
+    await assertSucceeds(setDoc(entry('owner1'), { ownerUid: 'owner1' }));
+    await assertFails(setDoc(entry('owner1', 'res2'), { ownerUid: 'owner2' })); // must name themselves
+    await assertFails(setDoc(entry('owner1', 'res3'), { ownerUid: 'owner1', propertyName: 'Sunrise PG' })); // nothing but ownerUid
+    await assertFails(setDoc(entry('owner1', 'res4', '12345'), { ownerUid: 'owner1' })); // ten digits only
+    await assertFails(setDoc(entry('t1', 'res5'), { ownerUid: 't1' })); // tenants cannot create markers
+    await assertFails(deleteDoc(doc(ctx('owner2'), 'residentPhones', PHONE, 'entries', 'res1')));
+    await assertSucceeds(deleteDoc(entry('owner1')));
+  });
+
+  it('lets a tenant learn only that a marker exists for a number, and the owner record which accounts are not them', async () => {
+    await assertSucceeds(setDoc(entry('owner1'), { ownerUid: 'owner1' }));
+    const seen = await assertSucceeds(ctx('t1').collection('residentPhones').doc(PHONE).collection('entries').get());
+    expect(seen.size).toBe(1);
+    await assertFails(updateDoc(entry('t1'), { dismissed: ['t1'] })); // a tenant cannot edit it
+    await assertSucceeds(updateDoc(entry('owner1'), { dismissed: ['t1'] }));
+    await assertFails(updateDoc(entry('owner1'), { ownerUid: 'owner2' })); // only `dismissed` may change
+    await assertFails(updateDoc(doc(ctx('owner2'), 'residentPhones', PHONE, 'entries', 'res1'), { dismissed: [] }));
+  });
+});
+
+describe('a tenant saying the number is not theirs', () => {
+  const PHONE = '9876543210';
+  const decline = (uid: string, id = 'res1', phone = PHONE) => doc(ctx(uid), 'residentPhones', phone, 'entries', id, 'declines', uid);
+
+  beforeEach(async () => {
+    await seed(async (db) => {
+      const now = Timestamp.now();
+      for (const [uid, role, extra] of [['owner1', 'owner', {}], ['owner2', 'owner', {}], ['t1', 'tenant', {}], ['t2', 'tenant', { phone: '9000000002' }]] as const) {
+        await setDoc(doc(db, 'users', uid), { ...profile(uid, role, extra), createdAt: now, updatedAt: now });
+      }
+      await setDoc(doc(db, 'properties', 'p1'), { ownerUid: 'owner1', name: 'Sunrise PG', setupStatus: 'ready', createdAt: now, updatedAt: now });
+      await setDoc(doc(db, 'properties', 'p1', 'residents', 'res1'), {
+        ownerUid: 'owner1', propertyId: 'p1', roomId: 'r1', bedId: 'b1', roomNumber: '101', bedLabel: 'Bed 1', sharing: 2,
+        name: 'Rahul', gender: 'male', phoneCountry: '+91', phone: PHONE, rentInr: 5000, moveInDate: now, status: 'active', createdAt: now,
+      });
+      await setDoc(doc(db, 'residentPhones', PHONE, 'entries', 'res1'), { ownerUid: 'owner1' });
+      await setDoc(doc(db, 'tenantPhones', PHONE, 'accounts', 't1'), { uid: 't1', displayName: 't1' });
+    });
+  });
+
+  it('lets a tenant decline once, only for their own number and a marker that exists', async () => {
+    await assertFails(setDoc(decline('t2'), { uid: 't2', createdAt: serverTimestamp() })); // not their number
+    await assertFails(setDoc(decline('t1', 'nope'), { uid: 't1', createdAt: serverTimestamp() })); // no such marker
+    await assertFails(setDoc(decline('t1'), { uid: 't1', createdAt: serverTimestamp(), note: 'x' })); // nothing extra
+    await assertFails(setDoc(decline('owner1', 'res1'), { uid: 'owner1', createdAt: serverTimestamp() })); // owners do not decline
+    await assertSucceeds(setDoc(decline('t1'), { uid: 't1', createdAt: serverTimestamp() }));
+    await assertFails(setDoc(decline('t1'), { uid: 't1', createdAt: serverTimestamp() })); // final
+    await assertFails(deleteDoc(decline('t1')));
+    await assertSucceeds(getDoc(decline('t1'))); // the tenant can see their own
+  });
+
+  it('lets only the resident’s owner read the declines', async () => {
+    await assertSucceeds(setDoc(decline('t1'), { uid: 't1', createdAt: serverTimestamp() }));
+    const list = (uid: string) => ctx(uid).collection('residentPhones').doc(PHONE).collection('entries').doc('res1').collection('declines').get();
+    expect((await assertSucceeds(list('owner1'))).size).toBe(1);
+    await assertFails(list('owner2'));
+    await assertFails(list('t1'));
+  });
+
+  it('stops the owner linking an account that declined that resident', async () => {
+    const member = { tenantUid: 't1', propertyId: 'p1', ownerUid: 'owner1', displayName: 't1', status: 'active', source: 'phone-match', residentId: 'res1', joinedAt: serverTimestamp() };
+    const link = () => {
+      const db = ctx('owner1');
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'properties', 'p1', 'residents', 'res1'), { tenantUid: 't1', updatedAt: serverTimestamp() });
+      batch.set(doc(db, 'properties', 'p1', 'members', 't1'), member);
+      return batch.commit();
+    };
+    await assertSucceeds(setDoc(decline('t1'), { uid: 't1', createdAt: serverTimestamp() }));
+    await assertFails(link());
   });
 });

@@ -13,6 +13,7 @@ import {
   REQUEST_LABEL,
   addressOf,
   canRequest,
+  requestAgainMs,
   acLabel,
   formatRentRange,
   galleryOf,
@@ -48,6 +49,8 @@ export function ListingDetailsScreen() {
   const owner = useAppSelector(selectOwner);
   const { send, withdraw } = useStayRequestActions(listing.data);
   const [sheet, setSheet] = useState(false);
+  // Read once per visit: whether a declined request may be sent again depends on the date.
+  const [now] = useState(Date.now);
   const [notice, setNotice] = useState<string | null>(null);
   const header = <Stack.Screen options={{ title: listing.data?.name ?? 'Property' }} />;
 
@@ -165,6 +168,20 @@ export function ListingDetailsScreen() {
         </View>
 
         <View style={styles.card}>
+          <Text style={styles.label}>Rules & regulations</Text>
+          {l.houseRules.length > 0 ? (
+            l.houseRules.map((rule, i) => (
+              <View key={`${i}-${rule}`} style={styles.ruleRow}>
+                <Text style={styles.ruleNumber}>{i + 1}.</Text>
+                <Text style={[styles.muted, styles.flex]}>{rule}</Text>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.muted}>The owner has not published rules for this property.</Text>
+          )}
+        </View>
+
+        <View style={styles.card}>
           <Text style={styles.label}>Contact the owner</Text>
           {l.contactName || l.contactPhone ? (
             <>
@@ -199,7 +216,7 @@ export function ListingDetailsScreen() {
               <Text style={styles.muted}>Could not check your request status.</Text>
               <AppButton label="Retry" variant="secondary" size="sm" onPress={() => mine.refetch()} />
             </>
-          ) : existing && !canRequest(existing) ? (
+          ) : existing && !canRequest(existing, now) ? (
             <>
               <Text style={styles.rowTitle}>{REQUEST_LABEL[existing.status]}</Text>
               <Text style={styles.muted}>
@@ -207,7 +224,12 @@ export function ListingDetailsScreen() {
                   ? 'The owner has your request. Nothing is allocated until they respond and assign you a bed.'
                   : existing.status === 'approved'
                     ? 'The owner approved your request. They will assign your bed and add you to the property.'
-                    : 'The owner did not accept this request.'}
+                    : (() => {
+                        const again = requestAgainMs(existing);
+                        return again === null
+                          ? 'The owner did not accept this request.'
+                          : `The owner did not accept this request. You can send a new request on ${new Date(again).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}.`;
+                      })()}
               </Text>
               {existing.status === 'pending' ? (
                 <AppButton
@@ -225,6 +247,8 @@ export function ListingDetailsScreen() {
               <Text style={styles.muted}>
                 {existing?.status === 'withdrawn'
                   ? 'You withdrew your earlier request. You can send it again.'
+                  : existing?.status === 'rejected'
+                    ? 'The owner did not accept your earlier request. It has been 7 days, so you can send a new one.'
                   : 'Tell the owner you would like to stay here. This is only a request: it does not reserve a bed.'}
               </Text>
               <AppButton label={existing ? 'Request again' : 'Request to stay'} onPress={() => { send.reset(); setSheet(true); }} disabled={tenantName === null} />
@@ -312,6 +336,8 @@ const styles = StyleSheet.create({
   rowTitle: { fontSize: 15, fontWeight: '700', color: BrandColors.textPrimary },
   label: { fontSize: 11, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase', color: BrandColors.textSecondary },
   muted: { fontSize: 13, lineHeight: 19, color: BrandColors.textSecondary },
+  ruleRow: { flexDirection: 'row', gap: 8 },
+  ruleNumber: { fontSize: 13, lineHeight: 19, fontWeight: '700', color: BrandColors.textPrimary },
   body: { fontSize: 14, lineHeight: 21, color: BrandColors.textPrimary },
   rent: { fontSize: 15, fontWeight: '700', color: BrandColors.textPrimary },
   contactRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },

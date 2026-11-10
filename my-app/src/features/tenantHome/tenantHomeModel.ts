@@ -19,11 +19,11 @@ export function firstNameOf(displayName: string | null): string | null {
  * longer be read); `unavailable` the property record is missing; `active` a current membership.
  */
 /** The tenant's own room and bed, from the resident record the owner created. */
-export type StayRoom = { roomNumber: string; bedLabel: string | null; sharing: number | null; /** Monthly rent for the bed, as the owner set it when assigning it. */ rentInr: number | null };
+export type StayRoom = { roomNumber: string; bedLabel: string | null; sharing: number | null; /** Monthly rent for the bed, as the owner set it when assigning it. */ rentInr: number | null; /** The security deposit the owner recorded as received, or null when none was collected. */ depositCollectedInr: number | null };
 
 export type TenantStay =
   | { state: 'none' | 'inactive' | 'unavailable' }
-  | { state: 'active'; propertyId: string; ownerUid: string; propertyName: string; /** The property's first published photo, if any. */ coverUrl?: string | null; location: string | null; city: string | null; region: string | null; postalCode: string | null; geo: { lat: number; lng: number } | null; contactName: string | null; contactPhone: string | null; joinedMs: number | null; checkInMs: number | null; checkOutMs: number | null; room?: StayRoom | null; /** Labels of the amenities the owner ticked, in the owner's order. */ amenities?: string[]; /** What the owner allows for moving out. */ moveOutPolicy?: MoveOutPolicy };
+  | { state: 'active'; propertyId: string; ownerUid: string; propertyName: string; /** The property's first published photo, if any. */ coverUrl?: string | null; location: string | null; city: string | null; region: string | null; postalCode: string | null; geo: { lat: number; lng: number } | null; contactName: string | null; contactPhone: string | null; joinedMs: number | null; checkInMs: number | null; checkOutMs: number | null; room?: StayRoom | null; /** Labels of the amenities the owner ticked, in the owner's order. */ amenities?: string[]; /** What the owner allows for moving out. */ moveOutPolicy?: MoveOutPolicy; /** The owner's rules and regulations, in the owner's order. */ houseRules?: string[] };
 
 export function formatJoined(ms: number | null): string | null {
   return ms === null ? null : new Date(ms).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });

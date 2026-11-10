@@ -1,7 +1,6 @@
 import { deleteField, doc, GeoPoint, getDoc, serverTimestamp, writeBatch } from 'firebase/firestore';
 
 import { getFirestoreDb } from '@/config/firebase';
-import { syncListing } from '@/features/discovery/discoveryService';
 import { getPhotoErrorMessage, uploadPropertyPhoto } from '@/features/properties/photoUpload';
 import { formFromProperty, isSavedPhoto, type EditablePhotos, type PropertyEditData } from '@/features/properties/propertyEdit';
 import { locationKeys, type LocationParts } from '@/features/properties/propertyLocation';
@@ -53,7 +52,7 @@ export async function savePropertyEdit(args: {
   original: PropertyEditData;
   report: (p: EditProgress) => void;
 }): Promise<EditResult> {
-  const { propertyId, ownerUid, form, original, report } = args;
+  const { propertyId, form, original, report } = args;
   const db = getFirestoreDb();
   const placeOf = (f: PropertyForm): LocationParts => ({ location: f.location.trim(), city: f.city.trim(), state: f.state.trim(), postalCode: f.postalCode.trim(), geo: f.geo });
   const before = placeOf(original.form);
@@ -106,8 +105,6 @@ export async function savePropertyEdit(args: {
     if (moved) await queueLocationMove(batch, before, after, propertyId);
     await withTimeout(batch.commit());
 
-    // The public listing mirrors name, address, photos and amenities (best effort).
-    void syncListing(propertyId, ownerUid);
     return { photosFailed: failures, photoError };
   } catch (error) {
     if (error instanceof DuplicateLocationError) throw new PropertyRequestError('duplicate-location', undefined, { cause: error });

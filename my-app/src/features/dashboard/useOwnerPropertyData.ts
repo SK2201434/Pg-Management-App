@@ -47,6 +47,7 @@ export function useOwnerPropertyData() {
       list.map((p, i) => ({
         id: p.id,
         name: p.name,
+        trackingStartMs: p.createdMs ?? null,
         rooms: rooms[i]?.data ?? null,
         tenants: tenants[i]?.data ?? null,
         charges: charges[i]?.data ?? null,

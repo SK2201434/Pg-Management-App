@@ -7,6 +7,7 @@ import {
   rentRows,
   scopeProperties,
   summarizeDueSoon,
+  trackingNote,
 } from '@/features/dashboard/dashboardModel';
 import type { Metric, OwnerDashboardData } from '@/features/dashboard/dashboardTypes';
 import { useOwnerPropertyData } from '@/features/dashboard/useOwnerPropertyData';
@@ -24,11 +25,11 @@ export function useOwnerDashboard(propertyId: string | null): OwnerDashboardData
   const { owned, list, data, now, rooms, tenants, charges, payments, retryAll, stateOf } = useOwnerPropertyData();
 
   if (owned.isPending) {
-    return { properties: LOADING, occupancy: LOADING, outstandingRent: LOADING, hasCharges: false, monthlyCollection: LOADING, upcomingRent: LOADING, needsAttention: LOADING, owing: [] };
+    return { properties: LOADING, occupancy: LOADING, outstandingRent: LOADING, hasCharges: false, monthlyCollection: LOADING, upcomingRent: LOADING, needsAttention: LOADING, trackingNote: null, owing: [] };
   }
   if (owned.isError) {
     const error: Metric<never> = { status: 'error', retry: retryAll };
-    return { properties: error, occupancy: error, outstandingRent: error, hasCharges: false, monthlyCollection: error, upcomingRent: error, needsAttention: error, owing: [] };
+    return { properties: error, occupancy: error, outstandingRent: error, hasCharges: false, monthlyCollection: error, upcomingRent: error, needsAttention: error, trackingNote: null, owing: [] };
   }
 
   const scoped = scopeProperties(data, propertyId);
@@ -57,6 +58,7 @@ export function useOwnerDashboard(propertyId: string | null): OwnerDashboardData
     }),
     upcomingRent: wrap(rentState, () => (rows ? summarizeDueSoon(dueSoonRows(scoped, rows, now)) : null)),
     needsAttention: wrap(rentState, () => (rows ? attentionRows(scoped, rows, now) : null)),
+    trackingNote: trackingNote(scoped),
     owing: rows ? propertiesOwing(rows) : [],
   };
 }

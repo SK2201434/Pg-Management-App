@@ -5,7 +5,9 @@ import { selectOwner } from '@/features/auth/ownerAuthSelectors';
 import { useOwnerPropertyData } from '@/features/dashboard/useOwnerPropertyData';
 import { useOwnerTenantRequests } from '@/features/requests/ownerRequestsLive';
 import { useOwnerReviewEvents } from '@/features/reviews/ownerReviewsLive';
-import { buildNotifications, buildReviewNotifications, buildTenantRequestNotifications, unreadIds, type OwnerNotification } from '@/features/notifications/notificationsModel';
+import { buildPhoneMatchNotifications } from '@/features/phoneMatch/phoneMatchModel';
+import { usePhoneMatches } from '@/features/phoneMatch/usePhoneMatches';
+import { buildNotifications, buildReviewNotifications, buildTenantRequestNotifications, type OwnerNotification } from '@/features/notifications/notificationsModel';
 import { fetchReadIds, saveReadIds } from '@/features/notifications/notificationService';
 import { buildStayRequestNotifications } from '@/features/stayRequests/stayRequestsModel';
 import { useStayRequests } from '@/features/stayRequests/stayRequestsLive';
@@ -28,6 +30,7 @@ export function useNotifications() {
   const stayRequests = useStayRequests();
   const tenantRequests = useOwnerTenantRequests();
   const reviewEvents = useOwnerReviewEvents();
+  const phoneMatches = usePhoneMatches();
   const reads = useQuery({ queryKey: readsKey(uid), queryFn: () => fetchReadIds(uid as string), enabled: uid !== undefined });
 
   const indexes = source.list.map((_, i) => i);
@@ -45,9 +48,10 @@ export function useNotifications() {
       ...buildStayRequestNotifications(stayRequests.items, source.now),
       ...buildTenantRequestNotifications(tenantRequests, names, source.now),
       ...buildReviewNotifications(reviewEvents, source.now),
+      ...buildPhoneMatchNotifications(phoneMatches.matches, source.now),
     ].sort((a, b) => b.atMs - a.atMs || a.id.localeCompare(b.id));
-    return all.map((n) => ({ ...n, read: read.has(n.id) }));
-  }, [source.owned.isSuccess, rentState, source.data, source.now, reads.data, reads.isPending, stayRequests.items, tenantRequests, reviewEvents]);
+    return all.map((n) => ({ ...n, read: n.autoRead === true || read.has(n.id) }));
+  }, [source.owned.isSuccess, rentState, source.data, source.now, reads.data, reads.isPending, stayRequests.items, tenantRequests, reviewEvents, phoneMatches.matches]);
 
   const markRead = useMutation<boolean, Error, string[]>({
     mutationFn: (ids) => saveReadIds(uid as string, ids),
@@ -69,7 +73,7 @@ export function useNotifications() {
     },
     markAllRead: () => {
       if (!items) return;
-      const ids = unreadIds(items, new Set(items.filter((n) => n.read).map((n) => n.id)));
+      const ids = items.filter((n) => !n.read).map((n) => n.id);
       if (ids.length > 0) markRead.mutate(ids);
     },
   };

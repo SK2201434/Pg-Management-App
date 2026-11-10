@@ -1,7 +1,10 @@
 import { zodResolver } from '@hookform/resolvers/zod';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Controller, useForm } from 'react-hook-form';
 import {
+  AccessibilityInfo,
+  Animated,
+  Easing,
   Modal,
   Pressable,
   type PressableInstance,
@@ -24,6 +27,7 @@ import {
   type OwnerRegisterFormInput,
 } from '@/features/auth/authValidation';
 import { HostellLogo } from '@/features/auth/HostellLogo';
+import { digitsOnly, PHONE_DIGITS } from '@/features/auth/phone';
 import { LoginTextField } from '@/features/auth/LoginTextField';
 import { registerOwnerThunk } from '@/features/auth/ownerAuthSlice';
 import { useAppDispatch } from '@/store/hooks';
@@ -38,7 +42,7 @@ const MODE_COPY: Record<
   { title: string; subtitle: string; button: string; switchLabel: string; switchIcon: string }
 > = {
   [AccountRoles.Tenant]: {
-    title: 'Create your account',
+    title: 'Hello Tenant, create your account',
     subtitle: 'Find your space. Make yourself at home.',
     button: 'Create Tenant Account',
     switchLabel: 'Register as a Property Owner',
@@ -52,6 +56,64 @@ const MODE_COPY: Record<
     switchIcon: '☺',
   },
 };
+
+// A small hint pointing at the three dots: owners register through the same menu. It fades and slides
+// in, then nudges gently toward the dots (the nudge is skipped when the device asks for reduced motion).
+function OwnerHint({ onPress, disabled }: { onPress: () => void; disabled: boolean }) {
+  const [progress] = useState(() => new Animated.Value(0));
+  const [nudge] = useState(() => new Animated.Value(0));
+
+  useEffect(() => {
+    let loop: Animated.CompositeAnimation | undefined;
+    let cancelled = false;
+    const entrance = Animated.timing(progress, {
+      toValue: 1,
+      duration: 450,
+      delay: 300,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    });
+    entrance.start(({ finished }) => {
+      if (!finished || cancelled) return;
+      AccessibilityInfo.isReduceMotionEnabled().then((reduced) => {
+        if (reduced || cancelled) return;
+        loop = Animated.loop(
+          Animated.sequence([
+            Animated.timing(nudge, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+            Animated.timing(nudge, { toValue: 0, duration: 700, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          ]),
+        );
+        loop.start();
+      }).catch(() => {});
+    });
+    return () => {
+      cancelled = true;
+      entrance.stop();
+      loop?.stop();
+    };
+  }, [progress, nudge]);
+
+  const translateX = Animated.add(
+    progress.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }),
+    nudge.interpolate({ inputRange: [0, 1], outputRange: [0, 3] }),
+  );
+
+  return (
+    <Animated.View style={{ opacity: progress, transform: [{ translateX }] }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Property owner? Register here"
+        onPress={onPress}
+        disabled={disabled}
+        style={styles.hint}>
+        <View style={styles.hintBubble}>
+          <Text style={styles.hintText}>Property owner? Register here</Text>
+        </View>
+        <View style={styles.hintCaret} />
+      </Pressable>
+    </Animated.View>
+  );
+}
 
 export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
   const dispatch = useAppDispatch();
@@ -90,7 +152,7 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
           email,
           password,
           accountType: mode,
-          phone: phone.trim() || undefined,
+          phone: phone.trim(),
           gender,
         }),
       ).unwrap();
@@ -115,6 +177,7 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
     <SafeAreaView style={styles.root}>
       <View style={styles.root}>
         <View style={styles.appBar}>
+          {mode === AccountRoles.Tenant ? <OwnerHint onPress={openMenu} disabled={isSubmitting} /> : null}
           <Pressable
             ref={menuButtonRef}
             accessibilityRole="button"
@@ -171,7 +234,9 @@ export function OwnerRegisterScreen({ onShowLogin }: OwnerRegisterScreenProps) {
                 name="phone"
                 label="Phone number"
                 error={errors.phone?.message}
-                keyboardType="phone-pad"
+                keyboardType="number-pad"
+                maxLength={PHONE_DIGITS}
+                transform={digitsOnly}
                 autoComplete="tel"
                 textContentType="telephoneNumber"
                 returnKeyType="next"
@@ -282,6 +347,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 16,
     paddingBottom: 8,
+  },
+  hint: { flexDirection: 'row', alignItems: 'center' },
+  hintBubble: {
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: BrandColors.textPrimary,
+  },
+  hintText: { fontSize: 10, fontWeight: '600', color: BrandColors.surface },
+  // A small triangle on the bubble's right edge, pointing at the three dots.
+  hintCaret: {
+    width: 0,
+    height: 0,
+    borderTopWidth: 4,
+    borderBottomWidth: 4,
+    borderLeftWidth: 5,
+    borderTopColor: 'transparent',
+    borderBottomColor: 'transparent',
+    borderLeftColor: BrandColors.textPrimary,
   },
   menuButton: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
   menuGlyph: { fontSize: 26, fontWeight: '700', color: BrandColors.textPrimary },

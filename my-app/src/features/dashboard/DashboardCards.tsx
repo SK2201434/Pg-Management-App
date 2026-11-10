@@ -10,8 +10,9 @@ import type { OwnerStayRequest } from '@/features/stayRequests/stayRequestsModel
 import type { AttentionRow, Metric, RentAmount } from '@/features/dashboard/dashboardTypes';
 import { MetricBoundary } from '@/features/dashboard/MetricBoundary';
 import { initials } from '@/features/properties/tenantsModel';
-import { formatPeriod, startOfDay } from '@/features/rent/rentModel';
+import { formatDate, formatPeriod, startOfDay } from '@/features/rent/rentModel';
 import { StatusBadge } from '@/features/rent/rentUi';
+import type { PhoneMatch } from '@/features/phoneMatch/phoneMatchModel';
 
 function Card({ children, style }: { children: ReactNode; style?: StyleProp<ViewStyle> }) {
   return <View style={[styles.card, style]}>{children}</View>;
@@ -20,12 +21,14 @@ function Card({ children, style }: { children: ReactNode; style?: StyleProp<View
 type OutstandingProps = {
   metric: Metric<RentAmount>;
   hasCharges: boolean;
+  /** The date rent is counted from, so the owner knows earlier dues are not included. */
+  trackingNote?: { sinceMs: number; propertyCount: number } | null;
   /** Opens the payment flow; absent when there is nothing to record against. */
   onRecordPayment?: () => void;
 };
 
 // The main money card: what is still owed, how many tenants owe it, and the way to record a payment.
-export function OutstandingRentCard({ metric, hasCharges, onRecordPayment }: OutstandingProps) {
+export function OutstandingRentCard({ metric, hasCharges, trackingNote, onRecordPayment }: OutstandingProps) {
   return (
     <Card style={styles.hero}>
       <View style={styles.spread}>
@@ -53,6 +56,16 @@ export function OutstandingRentCard({ metric, hasCharges, onRecordPayment }: Out
           </>
         )}
       </MetricBoundary>
+      {trackingNote ? (
+        <View style={styles.trackingRow}>
+          <MaterialIcons name="info-outline" size={14} color={BrandColors.textSecondary} />
+          <Text style={styles.trackingText}>
+            {trackingNote.propertyCount > 1
+              ? `Rent is counted from the day each property was added to HOSTELL (earliest ${formatDate(trackingNote.sinceMs)}). Earlier dues are not included.`
+              : `Rent is counted from ${formatDate(trackingNote.sinceMs)}, the day this property was added to HOSTELL. Earlier dues are not included.`}
+          </Text>
+        </View>
+      ) : null}
       <AppButton
         icon="add-circle-outline"
         label="Record Payment"
@@ -113,6 +126,9 @@ type AttentionProps = {
   stayRequests: readonly OwnerStayRequest[];
   onOpenStayRequests: () => void;
   onOpenTenant: (row: AttentionRow) => void;
+  /** Tenants who said the phone number the owner entered is not theirs. They stay here until the owner resolves them. */
+  verifyTenants: readonly PhoneMatch[];
+  onOpenVerify: (match: PhoneMatch) => void;
 };
 
 const VISIBLE = 6;
@@ -126,9 +142,9 @@ const FILTERS: { key: AttentionFilter; label: string }[] = [
 
 // Overdue, due-today and soon-due (next 7 days) balances. Reminders and payment verification do not exist in the app, so the
 // only action is Record (the existing payment flow); tapping a row opens the tenant.
-export function NeedsAttention({ metric, nowMs, onRecord, onRemind, stayRequests, onOpenStayRequests, onOpenTenant }: AttentionProps) {
+export function NeedsAttention({ metric, nowMs, onRecord, onRemind, stayRequests, onOpenStayRequests, onOpenTenant, verifyTenants, onOpenVerify }: AttentionProps) {
   const [filter, setFilter] = useState<AttentionFilter>('all');
-  const count = metric.status === 'ready' ? metric.value.length + stayRequests.length : null;
+  const count = metric.status === 'ready' ? metric.value.length + stayRequests.length + verifyTenants.length : null;
   return (
     <View style={styles.section}>
       <View style={styles.titleRow}>
@@ -141,6 +157,36 @@ export function NeedsAttention({ metric, nowMs, onRecord, onRemind, stayRequests
           </View>
         ) : null}
       </View>
+      {verifyTenants.length > 0 ? (
+        <View style={styles.list}>
+          {verifyTenants.map((m, i) => (
+            <Pressable
+              key={m.id}
+              accessibilityRole="button"
+              accessibilityLabel={`${m.tenantName} says the phone number for ${m.residentName} is not theirs. Verify details`}
+              onPress={() => onOpenVerify(m)}
+              style={[styles.row, styles.rowTop, i > 0 && styles.rowDivider]}>
+              <View style={styles.avatar}>
+                <MaterialIcons name="report-problem" size={20} color={BrandColors.error} />
+              </View>
+              <View style={styles.flex}>
+                <Text numberOfLines={1} style={styles.rowName}>
+                  {m.residentName}
+                </Text>
+                <Text numberOfLines={2} style={styles.small}>
+                  {m.tenantName} says this phone number is not theirs · {m.propertyName}
+                </Text>
+              </View>
+              <View style={styles.rowRight}>
+                <Text style={styles.soonLabel}>Verify details</Text>
+                <View style={styles.remind}>
+                  <Text style={styles.remindText}>Open</Text>
+                </View>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
       {stayRequests.length > 0 ? (
         <View style={styles.list}>
           {stayRequests.map((r, i) => (
@@ -173,7 +219,7 @@ export function NeedsAttention({ metric, nowMs, onRecord, onRemind, stayRequests
       ) : null}
       <MetricBoundary metric={metric} skeletonHeight={60}>
         {(rows) => {
-          if (rows.length === 0 && stayRequests.length > 0) return null;
+          if (rows.length === 0 && (stayRequests.length > 0 || verifyTenants.length > 0)) return null;
           if (rows.length === 0) {
             return (
               <Card>
@@ -250,6 +296,8 @@ const dueLabel = (dueMs: number, nowMs: number): string => {
 };
 
 const styles = StyleSheet.create({
+  trackingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
+  trackingText: { flex: 1, fontSize: 12, lineHeight: 17, color: BrandColors.textSecondary },
   remind: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, borderWidth: 1, borderColor: BrandColors.accent },
   remindPressed: { opacity: 0.7 },
   remindText: { fontSize: 11, fontWeight: '800', color: BrandColors.accent },

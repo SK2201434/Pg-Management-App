@@ -97,6 +97,7 @@ export async function applyStayChange(change: StayChange, ownerUid: string): Pro
   const data = resident.data();
   if (!resident.exists() || data?.ownerUid !== ownerUid) throw new Error('resident-not-found');
   const oldBedId = text(data.bedId);
+  const oldRoomId = text(data.roomId);
   const name = text(data.name);
   if (!oldBedId || !name) throw new Error('resident-incomplete');
 
@@ -120,6 +121,9 @@ export async function applyStayChange(change: StayChange, ownerUid: string): Pro
     residentName: name,
     createdAt: serverTimestamp(),
   });
+  // Keep the beds' availability flag (what tenants browsing the property see) in step with the claims.
+  if (oldRoomId) batch.update(doc(db, 'properties', change.propertyId, 'rooms', oldRoomId, 'beds', oldBedId), { occupied: false, updatedAt: serverTimestamp() });
+  batch.update(doc(db, 'properties', change.propertyId, 'rooms', change.toRoomId, 'beds', change.toBedId), { occupied: true, updatedAt: serverTimestamp() });
   batch.update(changeRef(change.propertyId, change.tenantUid), { status: 'applied', updatedAt: serverTimestamp() });
   await batch.commit();
 }

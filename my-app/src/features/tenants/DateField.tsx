@@ -5,6 +5,7 @@ import { Modal, Platform, Pressable, StyleSheet, Text, View } from 'react-native
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppButton } from '@/components/app-button';
+import { useScrollToError } from '@/components/form-error-scroll';
 import { BrandColors } from '@/constants/theme';
 import { formatDate } from '@/features/rent/rentModel';
 
@@ -16,6 +17,7 @@ export function DateField({ label, valueMs, onChange, error }: Props) {
   const insets = useSafeAreaInsets();
   const [iosOpen, setIosOpen] = useState(false);
   const [draft, setDraft] = useState(valueMs);
+  const anchor = useScrollToError(error);
 
   const open = () => {
     if (Platform.OS === 'android') {
@@ -33,7 +35,7 @@ export function DateField({ label, valueMs, onChange, error }: Props) {
   };
 
   return (
-    <View style={styles.field}>
+    <View ref={anchor} collapsable={false} style={styles.field}>
       <Text style={styles.label}>{label}</Text>
       <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${formatDate(valueMs)}. Change`} onPress={open} style={[styles.input, !!error && styles.inputError]}>
         <Text style={styles.value}>{formatDate(valueMs)}</Text>

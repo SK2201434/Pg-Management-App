@@ -1,13 +1,14 @@
 import { formatMemberSince, initialsOf, validateProfile } from '@/features/profile/profileModel';
 
 describe('validateProfile', () => {
-  it('requires a real name and an optional well-formed phone', () => {
-    expect(validateProfile({ displayName: 'Satish Kumar', phone: '' })).toEqual({});
-    expect(validateProfile({ displayName: 'Satish Kumar', phone: '+91 98765 43210' })).toEqual({});
-    expect(validateProfile({ displayName: ' ', phone: '' }).displayName).toBeDefined();
-    expect(validateProfile({ displayName: 'S', phone: '' }).displayName).toBeDefined();
-    expect(validateProfile({ displayName: 'x'.repeat(101), phone: '' }).displayName).toBeDefined();
-    expect(validateProfile({ displayName: 'Satish', phone: 'abc' }).phone).toBeDefined();
+  it('requires a real name and a ten-digit phone', () => {
+    expect(validateProfile({ displayName: 'Satish Kumar', phone: '9876543210' })).toEqual({});
+    expect(validateProfile({ displayName: ' ', phone: '9876543210' }).displayName).toBeDefined();
+    expect(validateProfile({ displayName: 'S', phone: '9876543210' }).displayName).toBeDefined();
+    expect(validateProfile({ displayName: 'x'.repeat(101), phone: '9876543210' }).displayName).toBeDefined();
+    for (const bad of ['', '12345', '98765432101', '+91 98765 43210', '98765 43210', 'abcdefghij']) {
+      expect(validateProfile({ displayName: 'Satish', phone: bad }).phone).toBeDefined();
+    }
   });
 });
 

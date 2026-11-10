@@ -1,27 +1,31 @@
-import { GeoPoint, collection, deleteDoc, doc, documentId, getDoc, getDocs, limit, orderBy, query, startAfter, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
+import { collection, doc, documentId, getDoc, getDocs, limit, orderBy, query, startAfter, serverTimestamp, setDoc, updateDoc, where } from 'firebase/firestore';
 
 import { getFirestoreDb } from '@/config/firebase';
-import { PAGE_SIZE, buildListing, isListable, type Listing, type RoomType, type StayRequest, type StayRequestStatus } from '@/features/discovery/discoveryModel';
+import { MAX_LISTING_PHOTOS, PAGE_SIZE, isListable, roomTypesOf, type Listing, type StayRequest, type StayRequestStatus } from '@/features/discovery/discoveryModel';
 import { classifyLoadError, describeLoadError } from '@/features/discovery/loadError';
-import { claimLocationLocks } from '@/features/properties/propertyLocationService';
+import { parseRules } from '@/features/properties/houseRulesModel';
 import { isPropertyType } from '@/features/properties/propertySetup';
-import { fetchPropertyRooms } from '@/features/properties/propertyService';
-
 
 const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 const int = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 
-function toRoomType(v: unknown): RoomType[] {
-  const t = v as Record<string, unknown> | null;
-  const sharing = int(t?.sharing);
-  if (!t || sharing === null) return [];
-  return [{ sharing, rooms: int(t.rooms) ?? 0, bedsTotal: int(t.bedsTotal) ?? 0, bedsAvailable: int(t.bedsAvailable) ?? 0, rentMinInr: int(t.rentMinInr), rentMaxInr: int(t.rentMaxInr), acRooms: int(t.acRooms) ?? 0 }];
-}
+/** A room as tenants see it. `beds` is empty when only the room documents were read (the list). */
+type BrowseRoom = { sharing: number; ac: boolean; rentPerBedInr: number | null; beds: { status: string; occupant: string | null }[] };
 
-function toListing(id: string, data: Record<string, unknown>): Listing | null {
+const urlsOf = (v: unknown): string[] => (Array.isArray(v) ? (v as { url?: unknown }[]).flatMap((x) => (typeof x?.url === 'string' && x.url.startsWith('https://') ? [x.url] : [])) : []);
+
+/**
+ * A browsable listing, built straight from the `properties/{id}` document and its rooms. There is no
+ * separate published copy: what the owner edits is what tenants see. `withBeds` means the beds were
+ * read, so per-sharing availability is real; otherwise only sharing options and the rent range are known.
+ */
+function toListing(id: string, data: Record<string, unknown>, rooms: readonly BrowseRoom[], withBeds: boolean): Listing | null {
   const name = text(data.name);
   const ownerUid = text(data.ownerUid);
   if (name === null || ownerUid === null) return null;
+  const photos = urlsOf(data.photos);
+  const photoUrls = [...new Set([...photos, ...urlsOf(data.roomPhotos)])].slice(0, MAX_LISTING_PHOTOS);
+  const rents = rooms.map((r) => r.rentPerBedInr).filter((r): r is number => r !== null);
   return {
     id,
     ownerUid,
@@ -32,33 +36,62 @@ function toListing(id: string, data: Record<string, unknown>): Listing | null {
     state: text(data.state),
     postalCode: text(data.postalCode),
     description: text(data.description),
-    coverUrl: text(data.coverUrl),
-    photoUrls: Array.isArray(data.photoUrls) ? data.photoUrls.filter((u): u is string => typeof u === 'string' && u.startsWith('https://')) : [],
-    roomTypes: Array.isArray(data.roomTypes) ? data.roomTypes.flatMap(toRoomType) : [],
+    coverUrl: photos[0] ?? photoUrls[0] ?? null,
+    photoUrls,
+    roomTypes: withBeds ? roomTypesOf(rooms) : [],
     amenities: Array.isArray(data.amenities) ? data.amenities.filter((k): k is string => typeof k === 'string') : [],
-    updatedMs: typeof (data.updatedAt as { toMillis?: unknown } | undefined)?.toMillis === 'function' ? (data.updatedAt as { toMillis: () => number }).toMillis() : null,
-    rentMinInr: int(data.rentMinInr),
-    rentMaxInr: int(data.rentMaxInr),
-    sharingOptions: Array.isArray(data.sharingOptions) ? data.sharingOptions.filter((n): n is number => typeof n === 'number') : [],
+    // Availability is read live, so there is no "as of" date to show.
+    updatedMs: null,
+    rentMinInr: rents.length ? Math.min(...rents) : null,
+    rentMaxInr: rents.length ? Math.max(...rents) : null,
+    sharingOptions: [...new Set(rooms.map((r) => r.sharing).filter((n) => n > 0))].sort((a, b) => a - b),
     contactName: text(data.contactName),
     contactPhone: text(data.contactPhone),
+    houseRules: parseRules(data.houseRules),
   };
+}
+
+const toBrowseRoom = (d: Record<string, unknown>, beds: BrowseRoom['beds']): BrowseRoom => ({
+  sharing: int(d.sharing) ?? 0,
+  ac: d.ac === true,
+  rentPerBedInr: int(d.rentPerBedInr),
+  beds,
+});
+
+/**
+ * The rooms of a property (and, when asked, their beds), read as a tenant. A bed counts as taken when
+ * the owner blocked it or its `occupied` flag is set (written with the bed claim); tenants cannot read
+ * the claims themselves, which name the residents.
+ */
+async function fetchBrowseRooms(propertyId: string, withBeds: boolean): Promise<BrowseRoom[]> {
+  const db = getFirestoreDb();
+  const rooms = await getDocs(collection(db, 'properties', propertyId, 'rooms'));
+  return Promise.all(
+    rooms.docs.map(async (r) => {
+      const d = r.data() as Record<string, unknown>;
+      if (!withBeds) return toBrowseRoom(d, []);
+      const beds = await getDocs(collection(db, 'properties', propertyId, 'rooms', r.id, 'beds'));
+      return toBrowseRoom(d, beds.docs.map((b) => ({ status: b.data().status === 'unavailable' ? 'unavailable' : 'available', occupant: b.data().occupied === true ? 'occupied' : null })));
+    }),
+  );
 }
 
 export type ListingsPage = { items: Listing[]; nextCursor: string | null };
 
 /**
- * One page of publicly listed properties, in document-id order. The `listed == true` filter is what
- * the rules require for a list; ordering by id needs no composite index. One extra document is read
- * to know whether another page exists, and the last kept document's id is the cursor for the next page.
+ * One page of browsable properties, in document-id order, read from `properties`. The
+ * `setupStatus == 'ready'` filter is what the rules require for a list by a non-owner; ordering by id
+ * needs no composite index. Switched-off properties are dropped here. One extra document is read to
+ * know whether another page exists, and the last kept document's id is the cursor for the next page.
+ * Each property's rooms are read too (one query each) for the rent range and sharing options.
  */
 export async function fetchListingsPage(cursor: string | null): Promise<ListingsPage> {
   let snap;
   try {
     snap = await getDocs(
       query(
-        collection(getFirestoreDb(), 'publicListings'),
-        where('listed', '==', true),
+        collection(getFirestoreDb(), 'properties'),
+        where('setupStatus', '==', 'ready'),
         orderBy(documentId()),
         ...(cursor ? [startAfter(cursor)] : []),
         limit(PAGE_SIZE + 1),
@@ -71,26 +104,36 @@ export async function fetchListingsPage(cursor: string | null): Promise<Listings
   }
   const hasMore = snap.size > PAGE_SIZE;
   const docs = snap.docs.slice(0, PAGE_SIZE);
-  const items = docs.flatMap((d) => {
-    const l = toListing(d.id, d.data());
-    return l ? [l] : [];
-  });
+  const items = (
+    await Promise.all(
+      docs.map(async (d) => {
+        const data = d.data() as Record<string, unknown>;
+        if (!isListable(data)) return [];
+        // A property whose rooms cannot be read is still shown, without rent or sharing.
+        const rooms = await fetchBrowseRooms(d.id, false).catch((): BrowseRoom[] => []);
+        const l = toListing(d.id, data, rooms, false);
+        return l ? [l] : [];
+      }),
+    )
+  ).flat();
   if (__DEV__) console.warn('[discovery] listings page', JSON.stringify({ returned: docs.length, usable: items.length, hasMore }));
   return { items, nextCursor: hasMore ? docs[docs.length - 1].id : null };
 }
 
-/** One listing, or null when it does not exist or is not listed. */
+/** One browsable property with its rooms and beds, or null when it does not exist or is not browsable. */
 export async function fetchListing(propertyId: string): Promise<Listing | null> {
   let snap;
   try {
-    snap = await getDoc(doc(getFirestoreDb(), 'publicListings', propertyId));
+    snap = await getDoc(doc(getFirestoreDb(), 'properties', propertyId));
   } catch (error) {
-    // The rules deny a read of a listing that does not exist or is not listed: it is just not available.
+    // The rules deny a read of a property that does not exist, is a draft or is switched off.
     if (classifyLoadError(error) === 'permission-denied') return null;
     throw error;
   }
   const data = snap.data();
-  return snap.exists() && data?.listed === true ? toListing(snap.id, data) : null;
+  if (!snap.exists() || !data || !isListable(data)) return null;
+  const rooms = await fetchBrowseRooms(propertyId, true);
+  return toListing(snap.id, data, rooms, true);
 }
 
 const requestRef = (propertyId: string, tenantUid: string) => doc(getFirestoreDb(), 'properties', propertyId, 'stayRequests', tenantUid);
@@ -110,15 +153,16 @@ export async function fetchMyStayRequest(propertyId: string, tenantUid: string):
   }
   if (!snap.exists()) return null;
   const data = snap.data();
-  return { status: STATUSES.includes(data.status) ? data.status : 'pending', message: text(data.message) };
+  const updated = data.updatedAt as { toMillis?: () => number } | undefined;
+  return { status: STATUSES.includes(data.status) ? data.status : 'pending', message: text(data.message), decidedMs: typeof updated?.toMillis === 'function' ? updated.toMillis() : null };
 }
 
-/** Sends a request, or re-sends one that was withdrawn. The rules allow nothing else. */
+/** Sends a request, or re-sends one that was withdrawn, or one the owner declined at least a week ago. The rules allow nothing else. */
 export async function sendStayRequest(args: { listing: Listing; tenantUid: string; tenantName: string; tenantPhone: string | null; tenantGender?: 'male' | 'female' | null; tenantEmail?: string | null; message: string; existing: StayRequest | null }): Promise<void> {
   const { listing, tenantUid, tenantName, tenantPhone, tenantGender, tenantEmail, existing } = args;
   const message = args.message.trim();
   const ref = requestRef(listing.id, tenantUid);
-  if (existing?.status === 'withdrawn') {
+  if (existing?.status === 'withdrawn' || existing?.status === 'rejected') {
     await updateDoc(ref, { status: 'pending', message: message || null, updatedAt: serverTimestamp() });
     return;
   }
@@ -140,103 +184,4 @@ export async function sendStayRequest(args: { listing: Listing; tenantUid: strin
 
 export async function withdrawStayRequest(propertyId: string, tenantUid: string): Promise<void> {
   await updateDoc(requestRef(propertyId, tenantUid), { status: 'withdrawn', updatedAt: serverTimestamp() });
-}
-
-/**
- * Owner side: publishes (or refreshes) the property's public listing from its own data. Only values
- * the owner has configured are copied, and the contact only when `shareContact` is true. No owner
- * screen calls this yet (see the final report).
- */
-export async function publishListing(propertyId: string, ownerUid: string, shareContact: boolean): Promise<void> {
-  const db = getFirestoreDb();
-  const snap = await getDoc(doc(db, 'properties', propertyId));
-  const data = snap.data();
-  if (!snap.exists() || data?.ownerUid !== ownerUid) throw new Error('not-owner');
-  const urlsOf = (v: unknown) => (Array.isArray(v) ? (v as { url?: unknown }[]).flatMap((x) => (text(x?.url) ? [text(x.url) as string] : [])) : []);
-  const photos = [...urlsOf(data.photos), ...urlsOf(data.roomPhotos)];
-  const rooms = await fetchPropertyRooms(propertyId, ownerUid);
-  const listing = buildListing({
-    property: {
-      name: text(data.name) ?? 'Untitled property',
-      propertyType: isPropertyType(data.propertyType) ? data.propertyType : null,
-      location: text(data.location),
-      city: text(data.city),
-      state: text(data.state),
-      postalCode: text(data.postalCode),
-      description: text(data.description),
-      coverUrl: photos[0] ?? null,
-      photoUrls: photos,
-      contactName: text(data.contactName),
-      contactPhone: text(data.contactPhone),
-    },
-    rooms,
-    amenities: Array.isArray(data.amenities) ? (data.amenities as unknown[]).filter((k): k is string => typeof k === 'string') : [],
-    shareContact,
-  });
-  await setDoc(doc(db, 'publicListings', propertyId), { ...listing, ownerUid, propertyId, listed: true, updatedAt: serverTimestamp() });
-}
-
-export async function unpublishListing(propertyId: string): Promise<void> {
-  await deleteDoc(doc(getFirestoreDb(), 'publicListings', propertyId));
-}
-
-const devWarn = (what: string, error: unknown) => {
-  if (__DEV__) console.warn(`[discovery] ${what}`, JSON.stringify(describeLoadError(error)));
-};
-
-type OwnListings = Map<string, { sharesContact: boolean; hasRoomTypes: boolean }>;
-
-/**
- * The owner's own listings, read with a query on `ownerUid`. A single-document read of a listing
- * that does not exist is denied by the rules (they look at `resource.data`, which is empty), so a
- * "does it exist?" check must be a query, which simply returns nothing.
- */
-async function fetchOwnListings(ownerUid: string): Promise<OwnListings> {
-  const snap = await getDocs(query(collection(getFirestoreDb(), 'publicListings'), where('ownerUid', '==', ownerUid)));
-  return new Map(snap.docs.map((d) => [d.id, { sharesContact: text(d.data().contactPhone) !== null, hasRoomTypes: Array.isArray(d.data().roomTypes) }]));
-}
-
-export type SyncOutcome = 'listed' | 'unlisted' | 'skipped' | 'failed';
-
-/**
- * Keeps the public listing in step with the property: a ready, active property is listed (with the
- * contact left private unless the listing already shared it); a draft or switched-off one is not.
- * Best effort: a failure never blocks the owner's own action, and is logged in development.
- */
-export async function syncListing(propertyId: string, ownerUid: string, known?: OwnListings): Promise<SyncOutcome> {
-  try {
-    const db = getFirestoreDb();
-    const [property, own] = await Promise.all([getDoc(doc(db, 'properties', propertyId)), known ?? fetchOwnListings(ownerUid)]);
-    const data = property.data();
-    if (!property.exists() || data?.ownerUid !== ownerUid) return 'skipped';
-    // Properties created before location locks existed claim theirs now (best effort).
-    void claimLocationLocks({ location: text(data.location), city: text(data.city), state: text(data.state), postalCode: text(data.postalCode), geo: data.geo instanceof GeoPoint ? data.geo : null }, propertyId);
-    const existing = own.get(propertyId);
-    if (isListable(data)) {
-      // The owner's contact number is the property's public contact: tenants call it from the listing.
-      await publishListing(propertyId, ownerUid, true);
-      return 'listed';
-    }
-    if (existing) await unpublishListing(propertyId);
-    return existing ? 'unlisted' : 'skipped';
-  } catch (error) {
-    devWarn(`could not sync listing for ${propertyId}`, error);
-    return 'failed';
-  }
-}
-
-/** Lists the owner's existing properties that have no public listing yet (a one-time catch-up). */
-export async function backfillListings(ownerUid: string, propertyIds: readonly string[]): Promise<void> {
-  const counts: Record<SyncOutcome | 'alreadyListed', number> = { listed: 0, unlisted: 0, skipped: 0, failed: 0, alreadyListed: 0 };
-  try {
-    const own = await fetchOwnListings(ownerUid);
-    for (const id of propertyIds) {
-      // A listing published before bed availability existed is refreshed once to add it.
-      if (own.get(id)?.hasRoomTypes) counts.alreadyListed += 1;
-      else counts[await syncListing(id, ownerUid, own)] += 1;
-    }
-  } catch (error) {
-    devWarn('could not read existing listings', error);
-  }
-  if (__DEV__) console.warn('[discovery] backfill', JSON.stringify({ properties: propertyIds.length, ...counts }));
 }

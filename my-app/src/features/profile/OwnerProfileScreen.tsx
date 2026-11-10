@@ -5,12 +5,15 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { AppScrollView } from '@/components/app-scroll-view';
 import { BrandColors } from '@/constants/theme';
 import { ProfileTab } from '@/features/profile/ProfileTab';
+import { REFERRAL_UI_ENABLED } from '@/features/referral/referralFlag';
 import { ReferTab } from '@/features/referral/ReferTab';
 
-const TABS = [
+const ALL_TABS = [
   { key: 'profile', label: 'My Profile' },
   { key: 'refer', label: 'Refer & Earn' },
 ] as const;
+// With the referral UI off there is only My Profile, so the tab bar is not shown at all.
+const TABS = ALL_TABS.filter((t) => t.key !== 'refer' || REFERRAL_UI_ENABLED);
 
 // The owner's profile page: a nested route (back arrow, no bottom navigation) with two tabs.
 // Switching tabs is local state, so nothing about the signed-in user or selected property is reset.
@@ -18,22 +21,24 @@ export function OwnerProfileScreen() {
   // `?tab=refer` (from the More menu) opens on Refer & Earn; anything else on My Profile.
   const { tab: requested } = useLocalSearchParams<{ tab?: string | string[] }>();
   const first = Array.isArray(requested) ? requested[0] : requested;
-  const [tab, setTab] = useState<(typeof TABS)[number]['key']>(first === 'refer' ? 'refer' : 'profile');
+  const [tab, setTab] = useState<(typeof ALL_TABS)[number]['key']>(REFERRAL_UI_ENABLED && first === 'refer' ? 'refer' : 'profile');
   return (
     <AppScrollView style={styles.screen} contentContainerStyle={styles.content}>
       <Stack.Screen options={{ title: 'My Profile' }} />
-      <View style={styles.tabs} accessibilityRole="tablist">
-        {TABS.map((t) => (
-          <Pressable
-            key={t.key}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: tab === t.key }}
-            onPress={() => setTab(t.key)}
-            style={[styles.tab, tab === t.key && styles.tabOn]}>
-            <Text style={[styles.tabText, tab === t.key && styles.tabTextOn]}>{t.label}</Text>
-          </Pressable>
-        ))}
-      </View>
+      {TABS.length > 1 ? (
+        <View style={styles.tabs} accessibilityRole="tablist">
+          {TABS.map((t) => (
+            <Pressable
+              key={t.key}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: tab === t.key }}
+              onPress={() => setTab(t.key)}
+              style={[styles.tab, tab === t.key && styles.tabOn]}>
+              <Text style={[styles.tabText, tab === t.key && styles.tabTextOn]}>{t.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      ) : null}
       {tab === 'profile' ? <ProfileTab /> : <ReferTab />}
     </AppScrollView>
   );

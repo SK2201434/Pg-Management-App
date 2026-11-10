@@ -5,8 +5,8 @@
 // way the Property, Tenants and Rent Ledger screens derive it, so the numbers agree across screens.
 import { occupancyPercent, summarizeRooms } from '@/features/properties/propertyDetailsModel';
 import type { PropertyRoom, PropertyTenant } from '@/features/properties/propertyTypes';
-import { nextDueMs, periodOf } from '@/features/rent/reminderModel';
-import { buildLedger, startOfDay, type LedgerRow, type RentCharge, type RentPayment } from '@/features/rent/rentModel';
+import { dueDatesBetween, nextDueMs, periodOf } from '@/features/rent/reminderModel';
+import { buildLedger, chargeId, startOfDay, type LedgerRow, type RentCharge, type RentPayment } from '@/features/rent/rentModel';
 import type { AttentionRow, OccupancySummary, RentAmount, UpcomingRow } from '@/features/dashboard/dashboardTypes';
 
 /** One owned property with whatever has been loaded for it (`null` = not loaded or failed). */
@@ -17,6 +17,8 @@ export type PropertyData = {
   tenants: PropertyTenant[] | null;
   charges: RentCharge[] | null;
   payments: RentPayment[] | null;
+  /** When the property was registered in HOSTELL. Rent is counted from this date, never before it. */
+  trackingStartMs?: number | null;
 };
 
 const DAY_MS = 86_400_000;
@@ -144,6 +146,44 @@ export function collectedThisMonth(list: readonly PropertyData[], nowMs: number)
 }
 
 /**
+ * Rent that fell due after the property was registered in HOSTELL but was never recorded as a charge:
+ * one overdue row per missed month for each active tenant the owner added. Months before the
+ * registration date are not counted, because the owner was not tracking rent in HOSTELL then. The
+ * balance is the bed's full rent; recording a payment creates the charge first.
+ */
+export function missedMonthRows(p: PropertyData, nowMs: number): { tenant: PropertyTenant; row: LedgerRow }[] {
+  const from = p.trackingStartMs ?? null;
+  if (from === null) return [];
+  const today = startOfDay(nowMs);
+  const out: { tenant: PropertyTenant; row: LedgerRow }[] = [];
+  for (const t of p.tenants ?? []) {
+    if (t.status !== 'active' || t.source !== 'added' || t.joinedAtMs === null || t.rentInr === null) continue;
+    for (const dueMs of dueDatesBetween(t.joinedAtMs, startOfDay(from), today - 1)) {
+      const period = periodOf(dueMs);
+      if ((p.charges ?? []).some((c) => c.tenantUid === t.tenantUid && c.period === period)) continue;
+      out.push({
+        tenant: t,
+        row: {
+          charge: { id: chargeId(t.tenantUid, period), tenantUid: t.tenantUid, period, amountInr: t.rentInr, dueMs },
+          tenantName: t.name,
+          paidInr: 0,
+          remainingInr: t.rentInr,
+          status: 'overdue',
+          daysOverdue: Math.round((today - dueMs) / DAY_MS),
+        },
+      });
+    }
+  }
+  return out;
+}
+
+/** The date rent is counted from for the properties in scope (the earliest), or null when unknown. */
+export function trackingNote(list: readonly PropertyData[]): { sinceMs: number; propertyCount: number } | null {
+  const starts = list.map((p) => p.trackingStartMs).filter((v): v is number => typeof v === 'number');
+  return starts.length > 0 ? { sinceMs: startOfDay(Math.min(...starts)), propertyCount: list.length } : null;
+}
+
+/**
  * What needs the owner's eye: overdue balances (longest first), then due today, then rent coming due in
  * the next 7 days (soonest first). A charge that is due today and part-paid still counts as due today.
  */
@@ -167,6 +207,26 @@ export function attentionRows(list: readonly PropertyData[], rows: readonly Dash
         dueMs: startOfDay(r.row.charge.dueMs),
         period: r.row.charge.period,
       }),
+    )
+    .concat(
+      list.flatMap((p) =>
+        missedMonthRows(p, nowMs).map(
+          ({ tenant, row }): AttentionRow => ({
+            key: `${p.id}:${tenant.tenantUid}:${row.charge.period}-scheduled`,
+            propertyId: p.id,
+            propertyName: p.name,
+            tenantUid: tenant.tenantUid,
+            chargeId: null,
+            name: tenant.name,
+            placement: tenant.roomNumber ? `Room ${tenant.roomNumber} · ${tenant.bedLabel ?? 'Bed'}` : null,
+            remainingInr: row.remainingInr,
+            status: 'overdue',
+            daysOverdue: row.daysOverdue,
+            dueMs: startOfDay(row.charge.dueMs),
+            period: row.charge.period,
+          }),
+        ),
+      ),
     )
     .sort((a, b) => (a.status === b.status ? b.daysOverdue - a.daysOverdue || a.name.localeCompare(b.name) : a.status === 'overdue' ? -1 : 1));
 

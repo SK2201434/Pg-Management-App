@@ -20,7 +20,8 @@ export type TenantNotificationKind =
   | 'stay-declined'
   | 'rent-reminder'
   | 'stay-change'
-  | 'stay-changed';
+  | 'stay-changed'
+  | 'stay-confirmation';
 
 export type TenantNotification = {
   id: string;
@@ -149,6 +150,27 @@ export function buildStayDecisionNotifications(requests: readonly MyStayRequest[
         target: 'property',
       };
     });
+}
+
+/**
+ * While an owner still has to confirm the tenant (a resident was added with their phone number), one
+ * notice. It names no property, room or bed and disappears once the stay is confirmed. It has no time,
+ * so it counts as newest.
+ */
+export function buildStayConfirmationNotifications(pending: boolean): TenantNotification[] {
+  if (!pending) return [];
+  return [
+    {
+      id: 'stay-confirmation_pending',
+      kind: 'stay-confirmation',
+      title: 'You’re already a tenant of a property',
+      body: 'Your owner has been sent a notification. Your stay details will be shown here after they confirm. Please contact your owner to confirm.',
+      propertyId: '',
+      propertyName: '',
+      atMs: null,
+      target: 'stay',
+    },
+  ];
 }
 
 /** Newest change first; a request whose server time has not arrived yet counts as newest. */

@@ -19,6 +19,7 @@ import {
   type Review,
 } from '@/features/reviews/reviewsModel';
 import { useMyReview, useReviewActions, useReviewEligibility, useReviewList, useReviewSummary } from '@/features/reviews/useReviews';
+import { ErrorText } from '@/components/form-error-scroll';
 
 function Stars({ value, size = 16 }: { value: number; size?: number }) {
   return (
@@ -161,7 +162,7 @@ function ReviewSheet({ initial, busy, error, onClose, onSubmit }: { initial: Rev
               </Pressable>
             ))}
           </View>
-          {shown && errors.rating ? <Text style={styles.error}>{errors.rating}</Text> : null}
+          <ErrorText style={styles.error}>{shown ? errors.rating : undefined}</ErrorText>
           <Field label="Your review" optional value={comment} onChangeText={setComment} maxLength={COMMENT_MAX} multiline numberOfLines={4} textAlignVertical="top" editable={!busy} placeholder="What was it like to stay here?" error={shown ? errors.comment : undefined} />
           {error ? <Text style={styles.error} accessibilityRole="alert">{error}</Text> : null}
           <View style={styles.row}>

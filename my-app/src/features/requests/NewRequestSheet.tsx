@@ -1,6 +1,6 @@
 import MaterialIcons from '@expo/vector-icons/MaterialIcons';
 import { useState } from 'react';
-import { KeyboardAvoidingView, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { AppButton } from '@/components/app-button';
@@ -15,6 +15,7 @@ import {
   type RequestCategory,
   type RequestErrors,
 } from '@/features/requests/requestsModel';
+import { ErrorScrollView, ErrorText } from '@/components/form-error-scroll';
 
 type Props = {
   propertyName: string;
@@ -48,7 +49,7 @@ export function NewRequestSheet({ propertyName, busy, submitError, onSubmit, onC
           <View style={styles.handle} />
           <Text accessibilityRole="header" style={styles.title}>New Service Request</Text>
           <Text style={styles.muted}>{propertyName}</Text>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.form}>
+          <ErrorScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.form}>
             <View style={styles.field}>
               <Text style={styles.label}>Issue category</Text>
               <View style={styles.chips}>
@@ -68,7 +69,7 @@ export function NewRequestSheet({ propertyName, busy, submitError, onSubmit, onC
                   );
                 })}
               </View>
-              {errors.category ? <Text style={styles.error}>{errors.category}</Text> : null}
+              <ErrorText style={styles.error}>{errors.category}</ErrorText>
             </View>
             <Field label="Issue title" value={title} onChangeText={setTitle} maxLength={TITLE_MAX} placeholder="e.g. Air conditioner not cooling" editable={!busy} error={errors.title} />
             <Field
@@ -84,7 +85,7 @@ export function NewRequestSheet({ propertyName, busy, submitError, onSubmit, onC
               error={errors.description}
             />
             {submitError ? <Text style={styles.error} accessibilityRole="alert">{submitError}</Text> : null}
-          </ScrollView>
+          </ErrorScrollView>
           <View style={styles.actions}>
             <AppButton variant="secondary" label="Cancel" disabled={busy} onPress={onClose} style={styles.action} />
             <AppButton variant="submit" label="Submit Ticket" loading={busy} onPress={submit} style={styles.action} />

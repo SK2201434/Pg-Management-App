@@ -1,5 +1,6 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { useScrollToError } from '@/components/form-error-scroll';
 import { BrandColors } from '@/constants/theme';
 import { GENDERS, type Gender } from '@/constants/account';
 
@@ -13,8 +14,9 @@ type Props = {
 
 // Male / Female choice, shared by Create Account and Add Tenant. Nothing is preselected.
 export function GenderSelect({ value, onChange, error, disabled, label = 'Gender' }: Props) {
+  const anchor = useScrollToError(error);
   return (
-    <View style={styles.wrap}>
+    <View ref={anchor} collapsable={false} style={styles.wrap}>
       <Text style={styles.label}>{label}</Text>
       <View style={styles.row} accessibilityRole="radiogroup">
         {GENDERS.map((g) => {

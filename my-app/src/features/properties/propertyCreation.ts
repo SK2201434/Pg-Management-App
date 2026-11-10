@@ -10,7 +10,6 @@ import {
 
 import { cloudinaryConfigPresence } from '@/config/cloudinary';
 import { getFirestoreDb } from '@/config/firebase';
-import { syncListing } from '@/features/discovery/discoveryService';
 import { ImageUploadError } from '@/features/storage/imageStorage';
 import { describeCause, logUploadFailure } from '@/features/storage/uploadDiagnostics';
 import {
@@ -53,6 +52,26 @@ function withTimeout<T>(promise: Promise<T>): Promise<T> {
     );
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Development-only trace of one save step: name, outcome and timing, plus the Firebase error code
+ * on failure. It names the step that was denied, which the user-facing message does not. It never
+ * logs field values, only ids and counts, and is silent in release builds.
+ */
+async function traced<T>(step: string, run: () => Promise<T>, detail?: Record<string, unknown>): Promise<T> {
+  if (!__DEV__) return run();
+  const started = Date.now();
+  console.log(`[property-save] ${step} → start`, detail ?? '');
+  try {
+    const result = await run();
+    console.log(`[property-save] ${step} → ok (${Date.now() - started}ms)`);
+    return result;
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    console.warn(`[property-save] ${step} → FAILED (${Date.now() - started}ms) code=${typeof code === 'string' ? code : 'none'}`, detail ?? '');
+    throw error;
+  }
 }
 
 function asRequestError(error: unknown): PropertyRequestError {
@@ -112,7 +131,7 @@ export class PropertySaveSession {
       const place = { ...propertyFields(form), geo: form.geo };
       // One property per location: refuse early with a clear message, then claim the location
       // in the same batch that creates the property (the lock can only ever be created once).
-      await assertLocationFree(place, this.propertyId);
+      await traced('check location is free', () => assertLocationFree(place, this.propertyId), { propertyId: this.propertyId });
       try {
         const batch = writeBatch(db);
         batch.set(propertyRef, {
@@ -127,7 +146,11 @@ export class PropertySaveSession {
         addLocationLocks(batch, place, this.propertyId);
         // The permanent Property ID tenants join with: the property's own id, plus who owns it.
         batch.set(doc(db, 'propertyJoin', this.propertyId), { ownerUid: this.ownerUid, createdAt: serverTimestamp() });
-        await withTimeout(batch.commit());
+        await traced(
+          'create property + location locks + propertyJoin',
+          () => withTimeout(batch.commit()),
+          { propertyId: this.propertyId, ownerUid: this.ownerUid, attempt: this.createAttempts, setupStatus: needsFinalize ? 'draft' : 'ready' },
+        );
       } catch (error) {
         // Another save may have claimed the location a moment ago: say so rather than "denied".
         if ((error as { code?: string } | null)?.code?.endsWith('permission-denied')) await assertLocationFree(place, this.propertyId);
@@ -139,8 +162,6 @@ export class PropertySaveSession {
       this.created = true;
       if (!needsFinalize) {
         this.finalized = true;
-        // Discovery: list the finished property publicly (contact stays private).
-        await this.publish();
         void completeInviteReferral(this.ownerUid, this.propertyId);
         return { propertyId: this.propertyId, photosUploaded: 0, photosFailed: 0 };
       }
@@ -171,7 +192,11 @@ export class PropertySaveSession {
           });
         }
       }
-      await withTimeout(batch.commit());
+      await traced(
+        `save rooms and beds ${i + 1}/${chunks.length}`,
+        () => withTimeout(batch.commit()),
+        { propertyId: this.propertyId, rooms: chunks[i].length, beds: chunks[i].reduce((n, c) => n + c.beds.length, 0) },
+      );
       for (const { roomId, beds } of chunks[i]) this.written.set(roomId, beds.map((b) => b.id));
     }
 
@@ -187,7 +212,7 @@ export class PropertySaveSession {
     const optional = propertyFields(form);
     const clearable = ['description', 'contactName', 'contactPhone', 'city', 'postalCode'] as const;
     try {
-      await withTimeout(
+      await traced('finalize property (photos + ready)', () => withTimeout(
         updateDoc(propertyRef, {
           ...optional,
           ...Object.fromEntries(clearable.filter((k) => !(k in optional)).map((k) => [k, deleteField()])),
@@ -196,7 +221,7 @@ export class PropertySaveSession {
           setupStatus: 'ready',
           updatedAt: serverTimestamp(),
         }),
-      );
+      ), { propertyId: this.propertyId, photos: photos.length, roomPhotos: roomPhotos.length });
     } catch (error) {
       // Photos may already be uploaded; say so in the dev log, then fail the save as before.
       logUploadFailure(new ImageUploadError('firestore/persist', { cause: error, details: { stage: 'firestore-persistence', ...describeCause(error) } }), {
@@ -205,8 +230,6 @@ export class PropertySaveSession {
       throw error;
     }
     this.finalized = true;
-    // Discovery: the property just became 'ready', so list it now (contact stays private).
-    await this.publish();
     void completeInviteReferral(this.ownerUid, this.propertyId);
 
     return {
@@ -215,15 +238,6 @@ export class PropertySaveSession {
       photosFailed: this.photoFailures,
       photoError: this.photoError,
     };
-  }
-
-  /**
-   * Lists the saved property publicly, waiting for it and retrying once, so a save with or without
-   * photos is discoverable as soon as it returns. A failure never fails the save: the owner's
-   * properties screen re-syncs any ready property that still has no listing.
-   */
-  private async publish() {
-    if ((await syncListing(this.propertyId, this.ownerUid)) === 'failed') await syncListing(this.propertyId, this.ownerUid);
   }
 
   get isFinalized() {
@@ -253,7 +267,7 @@ export class PropertySaveSession {
       if (count > 400) break;
     }
     if (count > 0) {
-      await withTimeout(batch.commit());
+      await traced('remove stale rooms/beds', () => withTimeout(batch.commit()), { propertyId: this.propertyId, deletes: count });
       for (const [roomId] of [...this.written]) {
         if (!writes.some((w) => w.roomId === roomId)) this.written.delete(roomId);
       }

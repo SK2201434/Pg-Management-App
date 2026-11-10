@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "620482060549",
+    "project_id": "hostell-685b3",
+    "storage_bucket": "hostell-685b3.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:620482060549:android:a8262fe738ebecd545576c",
+        "android_client_info": {
+          "package_name": "app.hostel.in"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "620482060549-j6d1a5n6cqogk3b41vn2equnqeteie5v.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "app.hostel.in",
+            "certificate_hash": "3849f3e89aa7c901cf369025363e1a63cf6b8b6e"
+          }
+        },
+        {
+          "client_id": "620482060549-ff86c3dv8pcrup2fdk5tg4mq823pjof2.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAgw7dgR8HiNxRNMmNLe9fkARC13Z9sS6s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "620482060549-ff86c3dv8pcrup2fdk5tg4mq823pjof2.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

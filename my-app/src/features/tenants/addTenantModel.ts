@@ -18,6 +18,8 @@ export type AddTenantForm = {
   bedId: string | null;
   rent: string;
   deposit: string;
+  /** The owner has already received the security deposit. Only meaningful when a deposit amount is entered. */
+  depositCollected: boolean;
   moveInMs: number;
 };
 
@@ -139,6 +141,8 @@ export type NewResident = {
   emergencyPhone: string | null;
   rentInr: number;
   depositInr: number | null;
+  /** Whether the deposit was received. Always false when there is no deposit amount. */
+  depositCollected: boolean;
   moveInMs: number;
 };
 
@@ -154,6 +158,7 @@ export function toNewResident(form: AddTenantForm): NewResident {
     emergencyPhone: form.emergencyPhone.trim() ? (normalizePhone(form.emergencyPhone) as string) : null,
     rentInr: parseAmount(form.rent) as number,
     depositInr: form.deposit.trim() ? (parseDeposit(form.deposit) as number) : null,
+    depositCollected: form.deposit.trim() !== '' && form.depositCollected,
     moveInMs: startOfDay(form.moveInMs),
   };
 }
@@ -163,3 +168,10 @@ export function prefillFromRequest(name: string | null | undefined, phone: strin
   const digits = (phone ?? '').replace(/\D/g, '');
   return { name: (name ?? '').trim().slice(0, 100), phone: digits.length >= 10 ? digits.slice(-10) : '' };
 }
+
+/**
+ * Whether a bed's claim belongs to the resident being saved: an earlier attempt of this same save
+ * (same resident id) already went through. Compared by id, never by name, so a different person who
+ * happens to share the name does not look like a repeat of the same save.
+ */
+export const bedClaimIsOurs = (claimedBy: string | null, residentId: string): boolean => claimedBy !== null && claimedBy === residentId;

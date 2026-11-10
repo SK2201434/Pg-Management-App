@@ -1,7 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { selectOwner } from '@/features/auth/ownerAuthSelectors';
-import { syncListing } from '@/features/discovery/discoveryService';
 import { ownerPropertiesQueryKey } from '@/features/properties/usePropertyQueries';
 import type { BedChoice, StayChange } from '@/features/stayChange/stayChangeModel';
 import { applyStayChange, cancelStayChange, fetchStayChange, proposeStayChange, respondStayChange } from '@/features/stayChange/stayChangeService';
@@ -44,8 +43,6 @@ export function useStayChangeActions(propertyId: string, tenantUid: string | und
   const apply = useMutation<void, Error, StayChange>({
     mutationFn: (change) => (ownerUid === undefined ? Promise.reject(new Error('Not ready')) : applyStayChange(change, ownerUid)),
     onSuccess: async () => {
-      // The tenant now holds a different bed, which the public listing shows as availability.
-      if (ownerUid) void syncListing(propertyId, ownerUid);
       await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: ownerPropertiesQueryKey(ownerUid) })]);
     },
   });

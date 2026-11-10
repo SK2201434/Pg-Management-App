@@ -1,3 +1,4 @@
+import { useScrollToError } from '@/components/form-error-scroll';
 import { useState } from 'react';
 import { Controller, type Control, type FieldValues, type Path } from 'react-hook-form';
 import { Pressable, StyleSheet, Text, TextInput, View, type TextInputProps } from 'react-native';
@@ -14,6 +15,8 @@ type LoginTextFieldProps<T extends FieldValues> = Omit<
   /** Renders a password field with a show/hide toggle. */
   isPassword?: boolean;
   error?: string;
+  /** Rewrites what the user types before it is stored (e.g. keep digits only). */
+  transform?: (text: string) => string;
 };
 
 // Rounded input used by the login screen. `label` is the accessibility label and placeholder.
@@ -23,13 +26,15 @@ export function LoginTextField<T extends FieldValues>({
   label,
   isPassword = false,
   error,
+  transform,
   ...inputProps
 }: LoginTextFieldProps<T>) {
   const [isHidden, setIsHidden] = useState(true);
   const [isFocused, setIsFocused] = useState(false);
+  const anchor = useScrollToError(error);
 
   return (
-    <View style={styles.container}>
+    <View ref={anchor} collapsable={false} style={styles.container}>
       <View
         style={[
           styles.inputRow,
@@ -46,7 +51,7 @@ export function LoginTextField<T extends FieldValues>({
               placeholder={label}
               placeholderTextColor={BrandColors.textSecondary}
               value={typeof field.value === 'string' ? field.value : ''}
-              onChangeText={field.onChange}
+              onChangeText={(text) => field.onChange(transform ? transform(text) : text)}
               onFocus={() => setIsFocused(true)}
               onBlur={() => {
                 setIsFocused(false);

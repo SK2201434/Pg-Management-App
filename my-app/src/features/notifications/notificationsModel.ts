@@ -11,7 +11,7 @@ import { rentRows, type PropertyData } from '@/features/dashboard/dashboardModel
 import type { RequestCategory, RequestStatus } from '@/features/requests/requestsModel';
 import { formatInr, PAYMENT_METHODS, startOfDay } from '@/features/rent/rentModel';
 
-export type NotificationKind = 'rent-overdue' | 'rent-due-today' | 'payment-recorded' | 'stay-request' | 'tenant-request' | 'review';
+export type NotificationKind = 'rent-overdue' | 'rent-due-today' | 'payment-recorded' | 'stay-request' | 'tenant-request' | 'review' | 'phone-match' | 'phone-declined';
 
 /** A review of one of the owner's properties, as the owner's live listener sees it. */
 export type OwnerReviewEvent = {
@@ -88,6 +88,10 @@ export type OwnerNotification = {
   tenantUid: string;
   /** For `tenant-request`: the issue it is about. */
   requestId?: string;
+  /** For `phone-match` and `phone-declined`: the resident the owner added. */
+  residentId?: string;
+  /** History the owner caused themselves (their own decision): listed, but never shown as unread. */
+  autoRead?: boolean;
   /** When the event happened (the due date, or the payment date). Dates have no time of day. */
   atMs: number;
 };
@@ -163,6 +167,18 @@ export function formatWhen(ms: number | null, nowMs: number): string {
   if (diffDays === 1) return 'Yesterday';
   return dateLabel(ms);
 }
+
+// ---- paging ----
+
+/** How many notifications the list shows at first, and how many more each scroll to the end adds. */
+export const NOTIFICATION_PAGE_SIZE = 15;
+
+/**
+ * How many to show after the next page is requested. It never exceeds `total`, and once everything is
+ * shown it stays put, so scrolling to the end again changes nothing: the list has no more to give.
+ */
+export const nextVisibleCount = (shown: number, total: number, pageSize: number = NOTIFICATION_PAGE_SIZE): number =>
+  Math.min(total, Math.max(shown, 0) + pageSize);
 
 // ---- read marks kept on the device ----
 

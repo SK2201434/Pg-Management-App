@@ -67,3 +67,7 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# Local development folders - exclude from EAS builds
+/.agents/
+/.venv/

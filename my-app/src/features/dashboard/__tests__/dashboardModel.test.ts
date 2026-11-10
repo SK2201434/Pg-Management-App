@@ -5,13 +5,16 @@ import {
   dueWithinDays,
   filterAttention,
   greeting,
+  missedMonthRows,
   outstandingRent,
+  trackingNote,
   propertiesOwing,
   rentRows,
   scopeProperties,
   type PropertyData,
 } from '@/features/dashboard/dashboardModel';
 import type { PropertyRoom, PropertyTenant } from '@/features/properties/propertyTypes';
+import { DUE_NEXT_DAY_AFTER_JOINING_FOR_TESTING } from '@/features/rent/reminderModel';
 import type { RentCharge, RentPayment } from '@/features/rent/rentModel';
 
 const day = (y: number, m: number, d: number) => new Date(y, m - 1, d).getTime();
@@ -132,5 +135,47 @@ describe('scope and greeting', () => {
     expect(greeting(day(2026, 10, 20) + 8 * 3_600_000)).toBe('Good morning');
     expect(greeting(day(2026, 10, 20) + 14 * 3_600_000)).toBe('Good afternoon');
     expect(greeting(day(2026, 10, 20) + 20 * 3_600_000)).toBe('Good evening');
+  });
+});
+
+describe('rent counted from when the property was added to HOSTELL', () => {
+  const NOW_NOV = day(2026, 11, 5) + 10 * 3_600_000;
+  // Joined 6 Aug 2026, but the property was only registered in HOSTELL on 1 Oct 2026.
+  const joined = (over: Partial<PropertyTenant> = {}): PropertyTenant => ({ ...tenant('t', 'Tara'), joinedAtMs: day(2026, 8, 6), rentInr: 6000, ...over });
+  const property = (over: Partial<PropertyData> = {}): PropertyData => ({ id: 'p', name: 'Palm', rooms: [], tenants: [joined()], charges: [], payments: [], trackingStartMs: day(2026, 10, 1), ...over });
+
+  it('does not count months that fell due before the property was added', () => {
+    const missed = missedMonthRows(property(), NOW_NOV);
+    // Only October's due date falls after 1 Oct and before today; August and September are not counted.
+    expect(missed.map((m) => m.row.charge.period)).toEqual(['2026-10']);
+    expect(missed[0].row).toMatchObject({ remainingInr: 6000, status: 'overdue' });
+  });
+
+  it('shows the missed month on the dashboard as overdue rent with no charge recorded yet', () => {
+    const p = property();
+    const rows = rentRows([p], NOW_NOV) ?? [];
+    const attention = attentionRows([p], rows, NOW_NOV);
+    const overdue = attention.filter((a) => a.status === 'overdue');
+    expect(overdue).toHaveLength(1);
+    expect(overdue[0]).toMatchObject({ chargeId: null, period: '2026-10', remainingInr: 6000 });
+  });
+
+  it('skips a month that already has a recorded charge, and counts nothing when the start date is unknown', () => {
+    const recorded = property({ charges: [charge('t', '2026-10', 6000, day(2026, 10, 6))] });
+    expect(missedMonthRows(recorded, NOW_NOV)).toEqual([]);
+    expect(missedMonthRows(property({ trackingStartMs: null }), NOW_NOV)).toEqual([]);
+  });
+
+  it('counts every missed month once the property was added earlier', () => {
+    const missed = missedMonthRows(property({ trackingStartMs: day(2026, 8, 1) }), NOW_NOV);
+    // Real cycle: first due one month after joining (Sep, Oct). While the testing switch is on, rent is
+    // due from the day after joining (Aug, Sep, Oct).
+    expect(missed.map((m) => m.row.charge.period)).toEqual(DUE_NEXT_DAY_AFTER_JOINING_FOR_TESTING ? ['2026-08', '2026-09', '2026-10'] : ['2026-09', '2026-10']);
+  });
+
+  it('reports the date rent is counted from', () => {
+    expect(trackingNote([property()])).toEqual({ sinceMs: day(2026, 10, 1), propertyCount: 1 });
+    expect(trackingNote([property(), property({ id: 'q', trackingStartMs: day(2026, 9, 1) })])).toEqual({ sinceMs: day(2026, 9, 1), propertyCount: 2 });
+    expect(trackingNote([property({ trackingStartMs: null })])).toBeNull();
   });
 });

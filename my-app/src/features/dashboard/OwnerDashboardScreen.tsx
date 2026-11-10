@@ -14,13 +14,15 @@ import { DashboardRemind } from '@/features/dashboard/DashboardRemind';
 import { activeIssues, TenantIssuesSwiper } from '@/features/dashboard/TenantIssuesSwiper';
 import { useOwnerDashboard } from '@/features/dashboard/useOwnerDashboard';
 import { useOwnerPropertyData } from '@/features/dashboard/useOwnerPropertyData';
+import { declinedMatches } from '@/features/phoneMatch/phoneMatchModel';
+import { usePhoneMatches } from '@/features/phoneMatch/usePhoneMatches';
 import { useStayRequests } from '@/features/stayRequests/stayRequestsLive';
 import { sortStayRequests } from '@/features/stayRequests/stayRequestsModel';
 import { useOwnerTenantRequests } from '@/features/requests/ownerRequestsLive';
 import { formatRupees } from '@/features/dashboard/dashboardFormat';
 import type { AttentionRow } from '@/features/dashboard/dashboardTypes';
 import { ensureRentCharge } from '@/features/rent/rentService';
-import { ownerPropertiesQueryKey, useListingBackfill } from '@/features/properties/usePropertyQueries';
+import { ownerPropertiesQueryKey, useBedOccupancySync } from '@/features/properties/usePropertyQueries';
 import { useAppSelector } from '@/store/hooks';
 
 const recordPayment = (propertyId: string, chargeId?: string) =>
@@ -33,7 +35,7 @@ const recordPayment = (propertyId: string, chargeId?: string) =>
 export function OwnerDashboardScreen() {
   const owner = useAppSelector(selectOwner);
   // Owners land here first, so properties created earlier are listed for tenants without opening Properties.
-  useListingBackfill();
+  useBedOccupancySync();
   const profileName = useProfileDisplayName();
   const queryClient = useQueryClient();
   const [requestedPropertyId, setRequestedPropertyId] = useState<string | null>(null);
@@ -48,6 +50,8 @@ export function OwnerDashboardScreen() {
   const selectedPropertyId = propertyList.some((p) => p.id === requestedPropertyId) ? requestedPropertyId : null;
 
   const data = useOwnerDashboard(selectedPropertyId);
+  // Tenants who disowned the phone number the owner entered, for the selected property or all of them.
+  const verifyTenants = declinedMatches(usePhoneMatches().matches).filter((m) => selectedPropertyId === null || m.propertyId === selectedPropertyId);
   const selected = propertyList.find((p) => p.id === selectedPropertyId);
   const scopeLabel = propertyList.length === 0 ? null : selected ? selected.name : propertyList.length > 1 ? `All Properties (${propertyList.length})` : propertyList[0].name;
   const monthLabel = new Date(now).toLocaleDateString('en-IN', { month: 'short' });
@@ -92,7 +96,7 @@ export function OwnerDashboardScreen() {
       <DashboardHeader greeting={greeting(now)} name={profileName ?? owner?.displayName ?? null} scopeLabel={scopeLabel} onOpenSelector={() => setSelecting(true)} />
       <CapacityStrip occupancy={data.occupancy.status === 'ready' ? data.occupancy.value : null} />
 
-      <OutstandingRentCard metric={data.outstandingRent} hasCharges={data.hasCharges} onRecordPayment={onRecordPayment} />
+      <OutstandingRentCard metric={data.outstandingRent} hasCharges={data.hasCharges} trackingNote={data.trackingNote} onRecordPayment={onRecordPayment} />
       <View style={styles.row}>
         <CollectedCard metric={data.monthlyCollection} monthLabel={monthLabel} style={styles.half} />
         <DueSoonCard metric={data.upcomingRent} style={styles.half} />
@@ -104,6 +108,8 @@ export function OwnerDashboardScreen() {
         onRemind={setRemindRow}
         stayRequests={pendingStay}
         onOpenStayRequests={() => router.push('/owner/stay-requests')}
+        verifyTenants={verifyTenants}
+        onOpenVerify={(m) => router.push({ pathname: '/owner/tenants/[tenantId]', params: { tenantId: m.residentId, propertyId: m.propertyId } })}
         onRecord={(row: AttentionRow) => void startRecord(row)}
         onOpenTenant={(row: AttentionRow) => router.push({ pathname: '/owner/tenants/[tenantId]', params: { tenantId: row.tenantUid, propertyId: row.propertyId } })}
       />

@@ -56,7 +56,7 @@ export const periodOf = (ms: number): string => {
  * TEMPORARY, FOR TESTING: rent is due the day after joining, then on that day each month. Set to
  * `false` to go back to the real cycle (due on the move-in day, one month after joining).
  */
-export const DUE_NEXT_DAY_AFTER_JOINING_FOR_TESTING = true;
+export const DUE_NEXT_DAY_AFTER_JOINING_FOR_TESTING = false;
 
 /**
  * The next rent due date that has not passed: the move-in day, one month on, then the month after.
@@ -70,6 +70,23 @@ export function nextDueMs(moveInMs: number, nowMs: number): number {
   let k = test ? 0 : 1;
   while (addMonths(anchor, k) < today) k += 1;
   return addMonths(anchor, k);
+}
+
+/**
+ * Every rent due date of a tenant's cycle from `fromMs` to `toMs` (both inclusive), oldest first. It is
+ * the same cycle as `nextDueMs`, so the dates agree with the next due date the app already shows.
+ */
+export function dueDatesBetween(moveInMs: number, fromMs: number, toMs: number): number[] {
+  const test = DUE_NEXT_DAY_AFTER_JOINING_FOR_TESTING;
+  const anchor = test ? startOfDay(startOfDay(moveInMs) + 1.5 * DAY_MS) : startOfDay(moveInMs);
+  const out: number[] = [];
+  // Bounded, so a bad date can never loop for long.
+  for (let k = test ? 0 : 1; k < 600; k += 1) {
+    const due = addMonths(anchor, k);
+    if (due > toMs) break;
+    if (due >= fromMs) out.push(due);
+  }
+  return out;
 }
 
 /** The first day the owner may remind about a due date: a week before it. */

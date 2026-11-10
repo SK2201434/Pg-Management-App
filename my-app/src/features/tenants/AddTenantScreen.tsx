@@ -31,6 +31,7 @@ import {
 import { DateField } from '@/features/tenants/DateField';
 import { BedUnavailableError } from '@/features/tenants/residentService';
 import { useAddResident } from '@/features/tenants/useAddResident';
+import { ErrorText } from '@/components/form-error-scroll';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
 
@@ -53,6 +54,9 @@ export function AddTenantScreen() {
   const locked = link !== undefined;
   // Gender is copied from the tenant's profile; an older request without it still needs one chosen.
   const genderLocked = locked && requestGender !== null;
+  // The phone is optional in a tenant's profile, so a request can arrive without a usable one. Only lock it
+  // when there is a number to show; otherwise the owner must be able to type it (it is required to save).
+  const phoneLocked = locked && prefill.phone !== '';
   const insets = useSafeAreaInsets();
   const properties = useOwnerProperties();
   const list = useMemo(() => properties.data ?? [], [properties.data]);
@@ -71,6 +75,7 @@ export function AddTenantScreen() {
     bedId: null,
     rent: '',
     deposit: '',
+    depositCollected: false,
     moveInMs: startOfDay(now),
   }));
   const [rentTouched, setRentTouched] = useState(false);
@@ -98,10 +103,13 @@ export function AddTenantScreen() {
   const vacantTotal = rooms.data ? rooms.data.reduce((sum, r) => sum + availableBedCount(r), 0) : null;
   const bed = room?.beds.find((b) => b.id === form.bedId) ?? null;
 
+  // Opened from a stay request, the tenant already chose this property, so the owner cannot switch it.
+  const propertyLocked = locked && property !== null;
+
   const set = (patch: Partial<AddTenantForm>) => setForm((f) => ({ ...f, ...patch }));
 
   const choosePropertyById = (id: string) => {
-    if (id === propertyId) return;
+    if (id === propertyId || propertyLocked) return;
     // Everything below the property depends on it.
     set({ propertyId: id, roomId: null, bedId: null, rent: '' });
     setRentTouched(false);
@@ -222,13 +230,13 @@ export function AddTenantScreen() {
                 : 'Tenants are added to one property at a time'}
             </Text>
           </View>
-          {list.length > 1 || !property ? (
+          {(list.length > 1 || !property) && !propertyLocked ? (
             <Pressable accessibilityRole="button" accessibilityLabel={property ? 'Change property' : 'Choose property'} onPress={() => setPickingProperty(true)} hitSlop={8}>
               <Text style={styles.link}>{property ? 'Change' : 'Choose'}</Text>
             </Pressable>
           ) : null}
         </View>
-        {errors.property ? <Text style={styles.error}>{errors.property}</Text> : null}
+        <ErrorText style={styles.error}>{errors.property}</ErrorText>
 
         <Card icon="person" title="Personal details">
           {locked ? <Text style={styles.muted}>This tenant has a verified account, so their personal details can’t be edited.</Text> : null}
@@ -239,7 +247,7 @@ export function AddTenantScreen() {
               <Text style={styles.countryText}>{PHONE_COUNTRY}</Text>
             </View>
             <View style={styles.flex}>
-              <Field label="Phone number" value={form.phone} onChangeText={(phone) => set({ phone })} keyboardType="phone-pad" maxLength={12} placeholder="98765 43210" error={errors.phone} hint={locked ? undefined : 'Not verified by HOSTELL.'} editable={!locked} style={locked ? styles.locked : undefined} />
+              <Field label="Phone number" value={form.phone} onChangeText={(phone) => set({ phone })} keyboardType="phone-pad" maxLength={12} placeholder="98765 43210" error={errors.phone} hint={phoneLocked ? undefined : 'Not verified by HOSTELL.'} editable={!phoneLocked} style={phoneLocked ? styles.locked : undefined} />
             </View>
           </View>
           <Field label="Email address" optional value={form.email} onChangeText={(email) => set({ email })} keyboardType="email-address" autoCapitalize="none" autoCorrect={false} maxLength={120} error={errors.email} editable={!locked} style={locked ? styles.locked : undefined} />
@@ -252,12 +260,19 @@ export function AddTenantScreen() {
         </Card>
 
         <Card icon="meeting-room" title="Stay details">
-          <Pressable accessibilityRole="button" accessibilityLabel="Property" onPress={() => setPickingProperty(true)} style={[styles.select, !!errors.property && styles.selectError]}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={propertyLocked ? 'Property, chosen by the tenant and cannot be changed' : 'Property'}
+            accessibilityState={{ disabled: propertyLocked }}
+            disabled={propertyLocked}
+            onPress={() => setPickingProperty(true)}
+            style={[styles.select, !!errors.property && styles.selectError, propertyLocked && styles.locked]}>
             <View style={styles.flex}>
               <Text style={styles.selectLabel}>Property</Text>
               <Text style={styles.selectValue}>{property ? property.name : 'Choose a property'}</Text>
+              {propertyLocked ? <Text style={styles.muted}>The tenant asked for this property, so it can’t be changed.</Text> : null}
             </View>
-            <MaterialIcons name="unfold-more" size={20} color={BrandColors.textSecondary} />
+            {propertyLocked ? <MaterialIcons name="lock-outline" size={18} color={BrandColors.textSecondary} /> : <MaterialIcons name="unfold-more" size={20} color={BrandColors.textSecondary} />}
           </Pressable>
 
           <Text style={styles.label}>Room</Text>
@@ -297,7 +312,7 @@ export function AddTenantScreen() {
               })}
             </View>
           )}
-          {errors.room ? <Text style={styles.error}>{errors.room}</Text> : null}
+          <ErrorText style={styles.error}>{errors.room}</ErrorText>
 
           <View style={styles.spread}>
             <Text style={styles.label}>Bed</Text>
@@ -331,7 +346,7 @@ export function AddTenantScreen() {
               })}
             </View>
           )}
-          {errors.bed ? <Text style={styles.error}>{errors.bed}</Text> : null}
+          <ErrorText style={styles.error}>{errors.bed}</ErrorText>
           {room ? <Text style={styles.muted}>Only vacant beds can be chosen. Occupied and blocked beds are disabled.</Text> : null}
 
           <View style={styles.twoCol}>
@@ -398,9 +413,29 @@ export function AddTenantScreen() {
               <Field label="Reference" optional value={reference} onChangeText={setReference} maxLength={60} placeholder="UPI or transaction id" />
             </View>
           ) : null}
-          <Field label="Security deposit (₹)" optional value={form.deposit} onChangeText={(deposit) => set({ deposit })} keyboardType="number-pad" maxLength={10} error={errors.deposit} hint="The agreed amount. It is not recorded as collected." />
+          <View style={styles.depositRow}>
+            <View style={styles.flex}>
+              <Field label="Security deposit (₹)" optional value={form.deposit} onChangeText={(deposit) => set({ deposit })} keyboardType="number-pad" maxLength={10} error={errors.deposit} hint={form.deposit.trim() && form.depositCollected ? 'Recorded as collected.' : 'The agreed amount. Tick Collected if you have already received it.'} />
+            </View>
+            <Pressable
+              accessibilityRole="checkbox"
+              accessibilityLabel="Security deposit collected"
+              accessibilityState={{ checked: form.depositCollected && form.deposit.trim() !== '', disabled: form.deposit.trim() === '' }}
+              disabled={form.deposit.trim() === ''}
+              onPress={() => set({ depositCollected: !form.depositCollected })}
+              hitSlop={6}
+              style={[styles.depositCheck, form.deposit.trim() === '' && styles.depositCheckOff]}>
+              <MaterialIcons
+                name={form.depositCollected && form.deposit.trim() !== '' ? 'check-box' : 'check-box-outline-blank'}
+                size={22}
+                color={form.depositCollected && form.deposit.trim() !== '' ? BrandColors.accent : BrandColors.textSecondary}
+              />
+              <Text style={styles.depositCheckText}>Collected</Text>
+            </Pressable>
+          </View>
         </Card>
 
+        {/* Documents section hidden for now (ID uploads are not available yet). Uncomment to show it again.
         <Card icon="description" title="Documents">
           <View style={styles.docs}>
             <MaterialIcons name="cloud-off" size={22} color={BrandColors.textSecondary} />
@@ -409,6 +444,7 @@ export function AddTenantScreen() {
             </Text>
           </View>
         </Card>
+        */}
 
         <View style={styles.summary} accessibilityLiveRegion="polite">
           <MaterialIcons name="verified" size={22} color={BrandColors.accent} />
@@ -496,6 +532,11 @@ const styles = StyleSheet.create({
   cardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   cardTitle: { fontSize: 16, fontWeight: '800', color: BrandColors.textPrimary },
   phoneRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  depositRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8 },
+  // Lined up with the amount box: the label above the input is about 25 px tall.
+  depositCheck: { marginTop: 25, minHeight: 46, flexDirection: 'row', alignItems: 'center', gap: 4 },
+  depositCheckOff: { opacity: 0.4 },
+  depositCheckText: { fontSize: 13, fontWeight: '600', color: BrandColors.textPrimary },
   countryBox: { marginTop: 25, minHeight: 46, paddingHorizontal: 12, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: BrandColors.canvas },
   countryText: { fontSize: 14, fontWeight: '700', color: BrandColors.textPrimary },
   emergency: { gap: 10, padding: 12, borderRadius: 12, backgroundColor: BrandColors.canvas },

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { backfillListings, syncListing } from '@/features/discovery/discoveryService';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { selectOwner } from '@/features/auth/ownerAuthSelectors';
@@ -12,6 +11,7 @@ import {
   fetchPropertyTenants,
   setPropertyGeo,
   setPropertyStatus,
+  syncBedOccupancy,
 } from '@/features/properties/propertyService';
 import { hasRoomNumber } from '@/features/properties/propertyDetailsModel';
 import { buildRoomWrite, type PropertyForm, type RoomDraft } from '@/features/properties/propertySetup';
@@ -110,8 +110,6 @@ export function useAddRoom(propertyId: string) {
       await createRoomWithBeds(propertyId, ownerUid as string, buildRoomWrite(draft, includeFloor));
     },
     onSuccess: () => {
-      // New beds change what the public listing shows.
-      if (ownerUid) void syncListing(propertyId, ownerUid);
       return queryClient.invalidateQueries({ queryKey: ownerPropertiesQueryKey(ownerUid) });
     },
   });
@@ -124,25 +122,24 @@ export function useSetPropertyStatus() {
   return useMutation<void, Error, { propertyId: string; status: 'active' | 'inactive' }>({
     mutationFn: ({ propertyId, status }) => setPropertyStatus(propertyId, status),
     onSuccess: (_, { propertyId }) => {
-      // A switched-off property leaves discovery; a switched-on one returns (best effort).
-      if (ownerUid) void syncListing(propertyId, ownerUid);
       return queryClient.invalidateQueries({ queryKey: ownerPropertiesQueryKey(ownerUid) });
     },
   });
 }
 
 /**
- * One-time catch-up: lists the owner's existing ready properties that have no public listing. It
- * runs once per session after the property list loads, and never blocks or fails the screen.
+ * One-time catch-up: beds claimed before the `occupied` flag existed get it, so tenants browsing the
+ * property see correct availability. It runs once per session after the property list loads, and never
+ * blocks or fails the screen.
  */
-export function useListingBackfill() {
+export function useBedOccupancySync() {
   const ownerUid = useAppSelector(selectOwner)?.uid;
   const { data } = useOwnerProperties();
   const done = useRef(false);
   useEffect(() => {
     if (done.current || !ownerUid || !data) return;
     done.current = true;
-    void backfillListings(ownerUid, data.map((p) => p.id));
+    void syncBedOccupancy(ownerUid, data.map((p) => p.id));
   }, [ownerUid, data]);
 }
 

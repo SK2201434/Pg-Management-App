@@ -68,6 +68,8 @@ export type OwnerDashboardData = {
   monthlyCollection: Metric<{ amountInr: number }>;
   upcomingRent: Metric<RentAmount>;
   needsAttention: Metric<AttentionRow[]>;
+  /** The date rent is counted from (when the property was registered in HOSTELL), for the scope. */
+  trackingNote: { sinceMs: number; propertyCount: number } | null;
   /** Properties that currently owe rent (to choose where to record a payment). */
   owing: { propertyId: string; propertyName: string; amountInr: number }[];
 };

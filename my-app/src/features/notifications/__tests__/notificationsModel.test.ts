@@ -3,6 +3,8 @@ import {
   buildNotifications,
   formatWhen,
   mergeLocalReads,
+  NOTIFICATION_PAGE_SIZE,
+  nextVisibleCount,
   parseLocalReads,
   unreadIds,
 } from '@/features/notifications/notificationsModel';
@@ -75,5 +77,17 @@ describe('formatWhen', () => {
     expect(formatWhen(day(2026, 10, 19), NOW)).toBe('Yesterday');
     expect(formatWhen(day(2026, 10, 1), NOW)).toMatch(/2026/);
     expect(formatWhen(null, NOW)).toBe('');
+  });
+});
+
+describe('notification paging', () => {
+  it('adds one page at a time and stops at the total', () => {
+    expect(NOTIFICATION_PAGE_SIZE).toBe(15);
+    expect(nextVisibleCount(15, 40)).toBe(30);
+    expect(nextVisibleCount(30, 40)).toBe(40);
+    // Everything is shown: asking again changes nothing, so the list stops growing.
+    expect(nextVisibleCount(40, 40)).toBe(40);
+    expect(nextVisibleCount(15, 10)).toBe(10);
+    expect(nextVisibleCount(15, 0)).toBe(0);
   });
 });

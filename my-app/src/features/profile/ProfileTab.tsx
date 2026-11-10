@@ -12,12 +12,16 @@ import { HostellLogo } from '@/features/auth/HostellLogo';
 import { selectOwner } from '@/features/auth/ownerAuthSelectors';
 import { logoutOwnerThunk } from '@/features/auth/ownerAuthSlice';
 import { requestPasswordReset } from '@/features/auth/passwordReset';
+import { REFERRAL_UI_ENABLED } from '@/features/referral/referralFlag';
 import { EditProfileSheet } from '@/features/profile/EditProfileSheet';
 import { formatMemberSince, initialsOf } from '@/features/profile/profileModel';
 import { useAccountProfile, useBusinessOverview, useSaveProfile } from '@/features/profile/useProfile';
 import { useAppDispatch, useAppSelector } from '@/store/hooks';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
+
+// Account Settings has no destination yet, so its row is hidden.
+const SHOW_ACCOUNT_SETTINGS = false;
 
 // My Profile. Everything comes from the signed-in user's own data: `users/{uid}`, Firebase Auth
 // (email verification) and the owner's own properties. Phone verification does not exist, so no
@@ -140,13 +144,16 @@ export function ProfileTab() {
           onPress={() => router.navigate('/owner/properties')}
           trailing={<Text style={styles.link}>View</Text>}
         />
-        <Row icon="card-giftcard" label="Referral credits" value={`${data.credits} ${data.credits === 1 ? 'credit' : 'credits'}`} />
+        {REFERRAL_UI_ENABLED ? (
+          <Row icon="card-giftcard" label="Referral credits" value={`${data.credits} ${data.credits === 1 ? 'credit' : 'credits'}`} />
+        ) : null}
         <Row icon="calendar-today" label="Member since" value={since ?? 'Unavailable'} last />
       </Section>
 
       <Section title="Account & security">
-        <Row icon="lock-reset" label="Password & Security" value="Send a password reset link to your email" onPress={changePassword} />
-        <Row icon="tune" label="Account Settings" value="Not available yet" disabled last />
+        <Row icon="lock-reset" label="Password & Security" value="Send a password reset link to your email" onPress={changePassword} last={!SHOW_ACCOUNT_SETTINGS} />
+        {/* Hidden until Account Settings has a destination; set SHOW_ACCOUNT_SETTINGS to true to show it. */}
+        {SHOW_ACCOUNT_SETTINGS ? <Row icon="tune" label="Account Settings" value="Not available yet" disabled last /> : null}
       </Section>
 
       <AppButton variant="secondary" icon="logout" label={signingOut ? 'Logging out…' : 'Log out'} disabled={signingOut} onPress={logOut} />

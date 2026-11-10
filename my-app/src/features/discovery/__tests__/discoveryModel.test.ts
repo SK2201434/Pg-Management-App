@@ -1,8 +1,8 @@
-import { acLabel, galleryOf, MAX_SEARCH_PAGES, mergePages, shouldLoadMoreForSearch, addressOf, buildListing, canRequest, filterListings, formatRentRange, sharingSummary, whatsAppUrl, type Listing } from '@/features/discovery/discoveryModel';
+import { acLabel, galleryOf, MAX_SEARCH_PAGES, mergePages, shouldLoadMoreForSearch, addressOf, canRequest, roomTypesOf, filterListings, requestAgainMs, formatRentRange, sharingSummary, whatsAppUrl, type Listing } from '@/features/discovery/discoveryModel';
 
 const l = (id: string, name: string, city: string | null, location: string | null = null): Listing => ({
   id, ownerUid: 'o', name, propertyType: null, location, city, state: null, postalCode: null, description: null, coverUrl: null, photoUrls: [],
-  rentMinInr: null, rentMaxInr: null, roomTypes: [], amenities: [], updatedMs: null, sharingOptions: [], contactName: null, contactPhone: null,
+  rentMinInr: null, rentMaxInr: null, roomTypes: [], amenities: [], updatedMs: null, sharingOptions: [], contactName: null, contactPhone: null, houseRules: [],
 });
 
 describe('discovery model', () => {
@@ -23,28 +23,35 @@ describe('discovery model', () => {
     expect(sharingSummary([3, 1])).toBe('Single · 3-sharing');
     expect(sharingSummary([])).toBeNull();
   });
-  it('builds a listing without unset rents and without contact unless shared', () => {
-    const property = { name: 'P', location: null, city: 'X', state: null, postalCode: null, description: null, coverUrl: null, contactName: 'Sam', contactPhone: '+91 99999 99999' };
+  it('groups rooms by sharing with real bed counts and an AC label', () => {
     const bed = (status: string, occupant: string | null = null) => ({ status, occupant });
     const rooms = [
-      { sharing: 2, ac: true, rentPerBedInr: 4000, beds: [bed('available'), bed('available', 'Asha')] },
+      { sharing: 2, ac: true, rentPerBedInr: 4000, beds: [bed('available'), bed('available', 'occupied')] },
       { sharing: 2, ac: false, rentPerBedInr: null, beds: [bed('unavailable'), bed('available')] },
       { sharing: 1, ac: false, rentPerBedInr: 7000, beds: [bed('available')] },
     ];
-    expect(buildListing({ property, rooms, shareContact: false })).toMatchObject({ rentMinInr: 4000, rentMaxInr: 7000, sharingOptions: [1, 2], contactPhone: null });
-    expect(buildListing({ property, rooms, shareContact: false }).roomTypes).toEqual([
+    expect(roomTypesOf(rooms)).toEqual([
       { sharing: 1, rooms: 1, bedsTotal: 1, bedsAvailable: 1, rentMinInr: 7000, rentMaxInr: 7000, acRooms: 0 },
       { sharing: 2, rooms: 2, bedsTotal: 4, bedsAvailable: 2, rentMinInr: 4000, rentMaxInr: 4000, acRooms: 1 },
     ]);
     expect(acLabel({ rooms: 2, acRooms: 1 })).toBe('AC & non-AC');
     expect(acLabel({ rooms: 2, acRooms: 2 })).toBe('AC');
     expect(acLabel({ rooms: 2, acRooms: 0 })).toBe('Non-AC');
-    expect(buildListing({ property, rooms: [], shareContact: true })).toMatchObject({ rentMinInr: null, contactPhone: '+91 99999 99999' });
   });
   it('limits requests and builds a WhatsApp link only from a full number', () => {
-    expect(canRequest(null)).toBe(true);
-    expect(canRequest({ status: 'withdrawn', message: null })).toBe(true);
-    expect(canRequest({ status: 'pending', message: null })).toBe(false);
+    const now = Date.UTC(2026, 10, 20);
+    const day = 86_400_000;
+    expect(canRequest(null, now)).toBe(true);
+    expect(canRequest({ status: 'withdrawn', message: null, decidedMs: null }, now)).toBe(true);
+    expect(canRequest({ status: 'pending', message: null, decidedMs: now }, now)).toBe(false);
+    expect(canRequest({ status: 'approved', message: null, decidedMs: now - 30 * day }, now)).toBe(false);
+    // A declined request can be sent again only after 7 days.
+    expect(canRequest({ status: 'rejected', message: null, decidedMs: now - 2 * day }, now)).toBe(false);
+    expect(canRequest({ status: 'rejected', message: null, decidedMs: now - 7 * day }, now)).toBe(true);
+    expect(canRequest({ status: 'rejected', message: null, decidedMs: now - 9 * day }, now)).toBe(true);
+    expect(canRequest({ status: 'rejected', message: null, decidedMs: null }, now)).toBe(false);
+    expect(requestAgainMs({ status: 'rejected', message: null, decidedMs: now - 2 * day })).toBe(now + 5 * day);
+    expect(requestAgainMs({ status: 'pending', message: null, decidedMs: now })).toBeNull();
     expect(whatsAppUrl('+91 98765 43210')).toBe('https://wa.me/919876543210');
     expect(whatsAppUrl('98765 43210')).toBe('https://wa.me/919876543210');
     expect(whatsAppUrl('12345')).toBeNull();

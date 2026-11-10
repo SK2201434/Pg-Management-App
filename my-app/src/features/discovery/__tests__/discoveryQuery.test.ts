@@ -6,8 +6,6 @@ import { filterListings, isListable, mergePages } from '@/features/discovery/dis
 import { listingsKey } from '@/features/discovery/useDiscovery';
 
 jest.mock('@/config/firebase', () => ({ getFirestoreDb: () => ({}) }));
-jest.mock('@/features/properties/propertyLocationService', () => ({ claimLocationLocks: jest.fn() }));
-jest.mock('@/features/properties/propertyService', () => ({ fetchPropertyRooms: jest.fn() }));
 jest.mock('@/store/hooks', () => ({ useAppSelector: jest.fn() }));
 jest.mock('@/features/auth/ownerAuthSelectors', () => ({ selectOwner: jest.fn() }));
 jest.mock('firebase/firestore', () => ({
@@ -28,24 +26,29 @@ jest.mock('firebase/firestore', () => ({
   where: jest.fn((f: string, op: string, v: unknown) => ({ f, op, v })),
 }));
 
-const docOf = (id: string) => ({ id, data: () => ({ name: `P ${id}`, ownerUid: 'owner1', listed: true }) });
+const docOf = (id: string) => ({ id, data: () => ({ name: `P ${id}`, ownerUid: 'owner1', setupStatus: 'ready' }) });
 const snapOf = (ids: string[]) => ({ size: ids.length, docs: ids.map(docOf) });
+const noRooms = { docs: [] };
+// The first read is the properties page; every later one is a property's rooms.
+const page = (ids: string[]) => (getDocs as jest.Mock).mockResolvedValueOnce(snapOf(ids)).mockResolvedValue(noRooms);
 
 describe('tenant discovery query', () => {
   beforeEach(() => jest.clearAllMocks());
 
-  it('reads the same public listings for any tenant, old or new (no user in the query or key)', async () => {
-    (getDocs as jest.Mock).mockResolvedValue(snapOf(['a']));
+  it('reads the same browsable properties for any tenant, old or new (no user in the query or key)', async () => {
+    page(['a']);
     const first = await fetchListingsPage(null);
+    (getDocs as jest.Mock).mockReset();
+    page(['a']);
     const second = await fetchListingsPage(null);
     expect(first.items.map((l) => l.id)).toEqual(['a']);
     expect(second).toEqual(first);
-    expect(where).toHaveBeenCalledWith('listed', '==', true);
+    expect(where).toHaveBeenCalledWith('setupStatus', '==', 'ready');
     expect(JSON.stringify(listingsKey)).toBe('["listings"]');
   });
 
-  it('shows a property published after the tenant signed in on the next read', async () => {
-    (getDocs as jest.Mock).mockResolvedValueOnce(snapOf([])).mockResolvedValueOnce(snapOf(['new']));
+  it('shows a property that became ready after the tenant signed in on the next read', async () => {
+    (getDocs as jest.Mock).mockResolvedValueOnce(snapOf([])).mockResolvedValueOnce(snapOf(['new'])).mockResolvedValue(noRooms);
     expect((await fetchListingsPage(null)).items).toEqual([]);
     const refreshed = await fetchListingsPage(null);
     expect(mergePages([refreshed]).map((l) => l.id)).toEqual(['new']);

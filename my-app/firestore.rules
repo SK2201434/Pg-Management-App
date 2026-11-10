@@ -59,14 +59,14 @@ service cloud.firestore {
       return d.keys().hasOnly(['uid', 'role', 'status', 'accountType', 'displayName', 'email',
                                'phone', 'gender', 'referralCode', 'createdAt', 'updatedAt'])
         && d.keys().hasAll(['uid', 'role', 'status', 'accountType', 'displayName', 'email',
-                            'createdAt', 'updatedAt'])
+                            'phone', 'createdAt', 'updatedAt'])
         && d.uid == uid
         && d.role in ['owner', 'tenant']
         && d.accountType == d.role
         && d.status == 'active'
         && d.email == request.auth.token.email
         && isShortString(d.displayName, 100)
-        && (!('phone' in d) || isShortString(d.phone, 20))
+        && d.phone is string && d.phone.matches('^[0-9]{10}$')
         && (!('gender' in d) || d.gender in ['male', 'female'])
         && d.createdAt == request.time
         && d.updatedAt == request.time;
@@ -120,6 +120,15 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      // Phone matches the owner chose "Not them" for, so the same suggestion is not shown again. Create-only.
+      match /dismissedMatches/{key} {
+        allow get, list: if signedIn() && request.auth.uid == uid;
+        allow create: if signedIn() && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['createdAt'])
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+
       allow get: if signedIn() && request.auth.uid == uid;
       allow list: if false;
 
@@ -134,7 +143,7 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['displayName', 'phone', 'updatedAt'])
         && isShortString(request.resource.data.displayName, 100)
-        && (!('phone' in request.resource.data) || isShortString(request.resource.data.phone, 20))
+        && request.resource.data.phone is string && request.resource.data.phone.matches('^[0-9]{10}$')
         && request.resource.data.updatedAt == request.time)
         || referralCreditOk(uid);
 
@@ -387,6 +396,61 @@ service cloud.firestore {
         && d.displayName == req.tenantName;
     }
 
+    // The lookup a tenant keeps for their own phone number (see tenantPhones below).
+    function tenantPhonePath(phone, uid) {
+      return /databases/$(database)/documents/tenantPhones/$(phone)/accounts/$(uid);
+    }
+
+    function residentEntryPath(phone, residentId) {
+      return /databases/$(database)/documents/residentPhones/$(phone)/entries/$(residentId);
+    }
+
+    // A tenant's "this isn't me" for one resident marker. It blocks linking that account to that resident.
+    function declinePath(phone, residentId, uid) {
+      return /databases/$(database)/documents/residentPhones/$(phone)/entries/$(residentId)/declines/$(uid);
+    }
+
+    // The owner confirms that a registered tenant is the resident they added with the same phone number:
+    // the membership is created together with `tenantUid` on that resident (same batch, checked with
+    // getAfter), and only when the tenant's own phone lookup exists for the resident's number.
+    function validPhoneMatchedMember(pid, tenantUid) {
+      let d = request.resource.data;
+      let res = getAfter(residentPath(pid, d.residentId)).data;
+      let lookup = tenantPhonePath(res.phone, tenantUid);
+      return ownsProperty(pid)
+        && d.keys().hasOnly(['tenantUid', 'propertyId', 'ownerUid', 'displayName', 'status', 'joinedAt', 'checkInAt',
+                             'source', 'residentId'])
+        && d.keys().hasAll(['tenantUid', 'propertyId', 'ownerUid', 'displayName', 'status', 'joinedAt', 'source',
+                            'residentId'])
+        && d.tenantUid == tenantUid
+        && d.propertyId == pid
+        && d.ownerUid == request.auth.uid
+        && d.status == 'active'
+        && d.source == 'phone-match'
+        && d.joinedAt == request.time
+        && (!('checkInAt' in d) || d.checkInAt is timestamp)
+        && d.residentId is string
+        && res.ownerUid == request.auth.uid
+        && res.tenantUid == tenantUid
+        && exists(tenantPhonePath(res.phone, tenantUid))
+        && !exists(declinePath(res.phone, d.residentId, tenantUid))
+        && d.displayName == get(lookup).data.displayName;
+    }
+
+    // Setting `tenantUid` on a resident that has none yet. Only that field changes, and the membership
+    // that links it is created in the same batch.
+    function validResidentLink(pid, residentId) {
+      let d = request.resource.data;
+      let b = resource.data;
+      return !('tenantUid' in b)
+        && d.diff(b).affectedKeys().hasOnly(['tenantUid', 'updatedAt'])
+        && d.tenantUid is string
+        && d.updatedAt == request.time
+        && getAfter(memberPath(pid, d.tenantUid)).data.residentId == residentId
+        && getAfter(memberPath(pid, d.tenantUid)).data.source == 'phone-match'
+        && exists(tenantPhonePath(b.phone, d.tenantUid));
+    }
+
     function validMoveOutRequest(pid, tenantUid) {
       let d = request.resource.data;
       let m = get(memberPath(pid, tenantUid)).data;
@@ -428,8 +492,12 @@ service cloud.firestore {
         && d.createdAt == request.time;
     }
 
-    function listingPath(pid) {
-      return /databases/$(database)/documents/publicListings/$(pid);
+    // A property tenants may browse and request a stay at: setup finished (legacy documents have no
+    // `setupStatus` and count as ready) and not switched off. Discovery reads `properties` directly.
+    function browsable(pid) {
+      return exists(propertyPath(pid))
+        && get(propertyPath(pid)).data.get('setupStatus', 'ready') == 'ready'
+        && get(propertyPath(pid)).data.get('status', 'active') != 'inactive';
     }
 
     // The permanent Property ID: a lookup document keyed by the property's own id that tells a joining
@@ -442,8 +510,7 @@ service cloud.firestore {
     // entered (its `propertyJoin` document exists). Either way the owner is the one on record.
     function validNewStayRequest(pid, tenantUid) {
       let d = request.resource.data;
-      return ((exists(listingPath(pid)) && get(listingPath(pid)).data.listed == true
-               && d.ownerUid == get(listingPath(pid)).data.ownerUid)
+      return ((browsable(pid) && d.ownerUid == get(propertyPath(pid)).data.ownerUid)
               || (exists(joinPath(pid)) && d.ownerUid == get(joinPath(pid)).data.ownerUid))
         && d.keys().hasOnly(['tenantUid', 'ownerUid', 'propertyId', 'tenantName', 'tenantPhone', 'tenantGender',
                              'tenantEmail', 'message', 'status', 'createdAt', 'updatedAt'])
@@ -461,7 +528,12 @@ service cloud.firestore {
     }
 
     // The applicant may only withdraw a pending request, or send a withdrawn one again (with an
-    // optional message) while the property is still listed.
+    // optional message) while the property is still listed. A request the owner declined can be sent
+    // again once 7 days have passed since the decision (the decision stamped `updatedAt`).
+    function declinedLongEnoughAgo(before) {
+      return before.updatedAt + duration.value(7, 'd') <= request.time;
+    }
+
     function validTenantStayRequestChange(pid) {
       let d = request.resource.data;
       let before = resource.data;
@@ -470,7 +542,9 @@ service cloud.firestore {
         && (!('message' in d) || d.message == null || isShortString(d.message, 300))
         && ((before.status == 'pending' && d.status == 'withdrawn' && d.get('message', null) == before.get('message', null))
             || (before.status == 'withdrawn' && d.status == 'pending'
-                && exists(listingPath(pid)) && get(listingPath(pid)).data.listed == true));
+                && browsable(pid))
+            || (before.status == 'rejected' && d.status == 'pending' && declinedLongEnoughAgo(before)
+                && browsable(pid)));
     }
 
     function validOwnerDecision() {
@@ -478,36 +552,6 @@ service cloud.firestore {
       return d.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
         && resource.data.status == 'pending'
         && d.status in ['approved', 'rejected']
-        && d.updatedAt == request.time;
-    }
-
-    // What an owner chooses to publish about a property. Never copies private data: no tenants,
-    // rooms, beds or occupancy. Contact fields exist only if the owner opts to share them.
-    function validListing(pid) {
-      let d = request.resource.data;
-      return d.keys().hasOnly(['ownerUid', 'propertyId', 'listed', 'name', 'propertyType', 'location', 'city', 'state', 'postalCode',
-                               'description', 'coverUrl', 'photoUrls', 'roomTypes', 'amenities', 'rentMinInr', 'rentMaxInr', 'sharingOptions',
-                               'contactName', 'contactPhone', 'updatedAt'])
-        && d.keys().hasAll(['ownerUid', 'propertyId', 'listed', 'name', 'sharingOptions', 'updatedAt'])
-        && d.ownerUid == request.auth.uid
-        && d.propertyId == pid
-        && d.listed is bool
-        && isShortString(d.name, 120)
-        && (!('propertyType' in d) || d.propertyType == null || d.propertyType in ["Men's Hostel", "Women's Hostel", 'Coliving'])
-        && (!('location' in d) || d.location == null || isShortString(d.location, 200))
-        && (!('city' in d) || d.city == null || isShortString(d.city, 100))
-        && (!('state' in d) || d.state == null || isShortString(d.state, 100))
-        && (!('postalCode' in d) || d.postalCode == null || isShortString(d.postalCode, 12))
-        && (!('description' in d) || d.description == null || isShortString(d.description, 1000))
-        && (!('coverUrl' in d) || d.coverUrl == null || isShortString(d.coverUrl, 1000))
-        && (!('photoUrls' in d) || (d.photoUrls is list && d.photoUrls.size() <= 8))
-        && (!('roomTypes' in d) || (d.roomTypes is list && d.roomTypes.size() <= 12))
-        && (!('amenities' in d) || (d.amenities is list && d.amenities.size() <= 20))
-        && (!('rentMinInr' in d) || d.rentMinInr == null || d.rentMinInr is int)
-        && (!('rentMaxInr' in d) || d.rentMaxInr == null || d.rentMaxInr is int)
-        && d.sharingOptions is list && d.sharingOptions.size() <= 12
-        && (!('contactName' in d) || d.contactName == null || isShortString(d.contactName, 100))
-        && (!('contactPhone' in d) || d.contactPhone == null || isShortString(d.contactPhone, 20))
         && d.updatedAt == request.time;
     }
 
@@ -557,7 +601,8 @@ service cloud.firestore {
     }
 
     // Owner-managed rooms. Rent is per bed, in whole rupees, and optional ("not configured").
-    // There is no occupancy field: occupancy comes from stays, never from these documents.
+    // Beds carry an `occupied` flag (written in the same batch as the bed claim) so tenants can see
+    // availability without reading `bedAllocations`, which names the residents.
     function validRoom(pid) {
       let d = request.resource.data;
       return d.keys().hasOnly(['ownerUid', 'propertyId', 'roomNumber', 'floor', 'sharing', 'ac',
@@ -576,8 +621,9 @@ service cloud.firestore {
 
     function validBed(pid, rid) {
       let d = request.resource.data;
-      return d.keys().hasOnly(['ownerUid', 'propertyId', 'roomId', 'label', 'status', 'updatedAt'])
+      return d.keys().hasOnly(['ownerUid', 'propertyId', 'roomId', 'label', 'status', 'occupied', 'updatedAt'])
         && d.keys().hasAll(['ownerUid', 'propertyId', 'roomId', 'label', 'status', 'updatedAt'])
+        && (!('occupied' in d) || d.occupied is bool)
         && d.ownerUid == request.auth.uid
         && d.propertyId == pid
         && d.roomId == rid
@@ -612,7 +658,7 @@ service cloud.firestore {
       let d = request.resource.data;
       return d.keys().hasOnly(['ownerUid', 'propertyId', 'roomId', 'bedId', 'roomNumber', 'bedLabel',
                                'sharing', 'name', 'gender', 'phoneCountry', 'phone', 'email', 'address',
-                               'emergencyName', 'emergencyPhone', 'rentInr', 'depositInr', 'moveInDate',
+                               'emergencyName', 'emergencyPhone', 'rentInr', 'depositInr', 'depositCollected', 'moveInDate',
                                'status', 'createdAt', 'tenantUid'])
         && d.keys().hasAll(['ownerUid', 'propertyId', 'roomId', 'bedId', 'roomNumber', 'bedLabel',
                             'sharing', 'name', 'gender', 'phoneCountry', 'phone', 'rentInr', 'moveInDate', 'status',
@@ -636,6 +682,7 @@ service cloud.firestore {
         && ('emergencyName' in d) == ('emergencyPhone' in d)
         && d.rentInr is int && d.rentInr >= 1 && d.rentInr <= 1000000
         && (!('depositInr' in d) || (d.depositInr is int && d.depositInr >= 0 && d.depositInr <= 10000000))
+        && (!('depositCollected' in d) || (d.depositCollected is bool && 'depositInr' in d))
         && d.moveInDate is timestamp
         && d.status == 'active'
         && d.createdAt == request.time
@@ -788,8 +835,13 @@ service cloud.firestore {
 
     match /properties/{pid} {
       allow get: if hasActiveProfile()
-        && (resource.data.ownerUid == request.auth.uid || exists(memberPath(pid, request.auth.uid)));
+        && (resource.data.ownerUid == request.auth.uid || exists(memberPath(pid, request.auth.uid))
+            || (resource.data.get('setupStatus', 'ready') == 'ready'
+                && resource.data.get('status', 'active') != 'inactive'));
       allow list: if hasActiveProfile() && resource.data.ownerUid == request.auth.uid;
+      // Discovery: any active user lists finished properties. A query must filter on
+      // `setupStatus == 'ready'` for the rules to accept it; switched-off ones are hidden in the app.
+      allow list: if hasActiveProfile() && resource.data.setupStatus == 'ready';
 
       // A property is created `draft` when rooms/beds/photos follow in later writes and flipped to
       // `ready` once they are in place (see propertyCreation.ts). Legacy documents have no
@@ -832,6 +884,8 @@ service cloud.firestore {
       // update), so an interrupted multi-batch save can be retried without duplicates.
       match /rooms/{roomId} {
         allow get, list: if hasActiveProfile() && resource.data.ownerUid == request.auth.uid;
+        // Tenants browsing a property see its rooms and beds (sharing, AC, rent, which beds are free).
+        allow get, list: if hasActiveProfile() && browsable(pid);
         allow create: if ownsProperty(pid) && validRoom(pid);
         allow update: if ownsProperty(pid) && resource.data.ownerUid == request.auth.uid
           && validRoom(pid);
@@ -839,6 +893,7 @@ service cloud.firestore {
 
         match /beds/{bedId} {
           allow get, list: if hasActiveProfile() && resource.data.ownerUid == request.auth.uid;
+          allow get, list: if hasActiveProfile() && browsable(pid);
           allow create: if ownsProperty(pid) && validBed(pid, roomId)
             && request.resource.data.status == 'available';
           allow update: if ownsProperty(pid) && resource.data.ownerUid == request.auth.uid
@@ -921,7 +976,7 @@ service cloud.firestore {
         allow get, list: if hasActiveProfile() && resource.data.tenantUid == request.auth.uid;
         allow create: if ownsProperty(pid) && validResident(pid, residentId);
         allow update: if ownsProperty(pid) && resource.data.ownerUid == request.auth.uid
-          && (validResidentEdit(pid) || validResidentMove(pid, residentId));
+          && (validResidentEdit(pid) || validResidentMove(pid, residentId) || validResidentLink(pid, residentId));
         // Removing a resident (e.g. a mistaken entry) is the owner's, together with the bed claim.
         allow delete: if ownsProperty(pid) && resource.data.ownerUid == request.auth.uid;
       }
@@ -971,7 +1026,8 @@ service cloud.firestore {
           && getAfter(referralPath(request.resource.data.referralCode)).data.usedBy == tenantUid
           && getAfter(userPath(tenantUid)).data.role == 'tenant'
           && getAfter(userPath(tenantUid)).data.displayName == request.resource.data.displayName)
-          || validOwnerAddedMember(pid, tenantUid);
+          || validOwnerAddedMember(pid, tenantUid)
+          || validPhoneMatchedMember(pid, tenantUid);
 
         // The owner records the tenant's stay window. Nothing else on a membership can change.
         allow update: if isActiveOwner()
@@ -1024,7 +1080,7 @@ service cloud.firestore {
 
       // A tenant's request to stay at a property. The document id is the applicant's uid, so there
       // is at most one per tenant per property. The tenant creates it `pending` for a property that
-      // is publicly listed by that owner, can withdraw it (and send it again after withdrawing), and
+      // is browsable (see `browsable`), can withdraw it (and send it again after withdrawing), and
       // can change nothing else. Only the owner decides (`approved` / `rejected`). A request grants
       // no bed, stay or access: that is a separate, owner-controlled step.
       match /stayRequests/{tenantUid} {
@@ -1063,7 +1119,68 @@ service cloud.firestore {
       allow list: if hasActiveProfile() && resource.data.tenantUid == request.auth.uid;
     }
 
-    // ---------- publicListings/{propertyId}: owner-published, readable by any signed-in user ----------
+    // ---------- a tenant's own memberships, across properties ----------
+    // Lets a tenant find the property an owner linked them to (for example after confirming a phone
+    // match, where no stay request exists). It only ever returns memberships where they are the tenant.
+    match /{path=**}/members/{memberId} {
+      allow list: if hasActiveProfile() && resource.data.tenantUid == request.auth.uid;
+    }
+
+    // ---------- tenantPhones/{phone}/accounts/{uid}: who registered with a phone number ----------
+    // Written by the tenant for their own account, to let an owner find a match for a resident's number:
+    // { uid, displayName } and nothing else. An owner can read the accounts under a number they ask about.
+    // Several accounts may share a number, so registering first never blocks anyone.
+    match /tenantPhones/{phone}/accounts/{uid} {
+      allow get: if (isActiveOwner() || (signedIn() && request.auth.uid == uid));
+      allow list: if isActiveOwner();
+      allow create, update: if hasActiveProfile()
+        && request.auth.uid == uid
+        && phone.matches('^[0-9]{10}$')
+        && request.resource.data.keys().hasOnly(['uid', 'displayName'])
+        && request.resource.data.keys().hasAll(['uid', 'displayName'])
+        && request.resource.data.uid == uid
+        && get(userPath(uid)).data.role == 'tenant'
+        && get(userPath(uid)).data.phone == phone
+        && request.resource.data.displayName == get(userPath(uid)).data.displayName;
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ---------- residentPhones/{phone}/entries/{residentId}: "an owner added someone with this number" ----------
+    // Written by the owner when they add a resident by hand: only { ownerUid } (and, later, the accounts the
+    // owner said are not this resident). It lets a tenant who registers with the number be told, without
+    // naming the property, room or bed, that their owner needs to confirm them. Nothing about the stay is
+    // stored here. Any signed-in user can read it for a number they ask about.
+    match /residentPhones/{phone}/entries/{residentId} {
+      allow get, list: if hasActiveProfile();
+      allow create: if isActiveOwner()
+        && phone.matches('^[0-9]{10}$')
+        && request.resource.data.keys().hasOnly(['ownerUid'])
+        && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if isActiveOwner()
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['dismissed'])
+        && request.resource.data.dismissed is list
+        && request.resource.data.dismissed.size() <= 50;
+      allow delete: if isActiveOwner() && resource.data.ownerUid == request.auth.uid;
+
+      // A tenant who says the number is not theirs. Final (cannot be changed or removed); the owner reads
+      // them to know the number they entered is wrong, and the rules then refuse to link that account.
+      match /declines/{uid} {
+        allow get: if signedIn()
+          && (request.auth.uid == uid
+              || (isActiveOwner() && get(residentEntryPath(phone, residentId)).data.ownerUid == request.auth.uid));
+        allow list: if isActiveOwner() && get(residentEntryPath(phone, residentId)).data.ownerUid == request.auth.uid;
+        allow create: if hasActiveProfile()
+          && request.auth.uid == uid
+          && get(userPath(uid)).data.role == 'tenant'
+          && get(userPath(uid)).data.phone == phone
+          && exists(residentEntryPath(phone, residentId))
+          && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
+          && request.resource.data.uid == uid
+          && request.resource.data.createdAt == request.time;
+        allow update, delete: if false;
+      }
+    }
 
     // ---------- propertyJoin/{propertyId}: the permanent Property ID lookup ----------
     // Readable by any verified user (a tenant enters the id while creating their account, before they
@@ -1078,14 +1195,6 @@ service cloud.firestore {
         && getAfter(propertyPath(pid)).data.ownerUid == request.auth.uid
         && request.resource.data.createdAt == request.time;
       allow update, delete: if false;
-    }
-
-    match /publicListings/{pid} {
-      allow get: if hasActiveProfile() && (resource.data.listed == true || resource.data.ownerUid == request.auth.uid);
-      allow list: if hasActiveProfile() && (resource.data.listed == true || resource.data.ownerUid == request.auth.uid);
-      allow create: if ownsProperty(pid) && validListing(pid);
-      allow update: if ownsProperty(pid) && resource.data.ownerUid == request.auth.uid && validListing(pid);
-      allow delete: if ownsProperty(pid) && resource.data.ownerUid == request.auth.uid;
     }
 
     // ---------- propertyLocations/{key}: one property per location ----------

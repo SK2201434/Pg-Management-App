@@ -23,6 +23,7 @@ const ICON: Record<TenantNotificationKind, { icon: IconName; color: string; tint
   'stay-change': { icon: 'swap-horiz', color: BrandColors.accent, tint: '#E8F0EE' },
   'stay-changed': { icon: 'bed', color: '#38775B', tint: '#EDF6F1' },
   'rent-reminder': { icon: 'payments', color: '#9E7231', tint: '#FDF7EB' },
+  'stay-confirmation': { icon: 'hourglass-top', color: '#9E7231', tint: '#FDF7EB' },
 };
 
 // The tenant's notifications: updates on their own requests and announcements from their property.

@@ -20,7 +20,7 @@ import { PortfolioSummary } from '@/features/properties/PortfolioSummary';
 import { PropertyCard } from '@/features/properties/PropertyCard';
 import { filterByStatus, filterProperties, statusCounts, type StatusFilter } from '@/features/properties/propertyFilter';
 import { getPropertyErrorMessage } from '@/features/properties/propertyService';
-import { useCapturePropertyGeo, useListingBackfill, useOwnerProperties } from '@/features/properties/usePropertyQueries';
+import { useCapturePropertyGeo, useBedOccupancySync, useOwnerProperties } from '@/features/properties/usePropertyQueries';
 
 const openAddProperty = () => router.push('/owner/add-property');
 
@@ -29,7 +29,7 @@ const openAddProperty = () => router.push('/owner/add-property');
 // Bed totals are deferred to the Room and Bed module (`occupancy` stays null).
 export function PropertiesScreen() {
   const { data, error, isPending, isError, refetch, isRefetching } = useOwnerProperties();
-  useListingBackfill();
+  useBedOccupancySync();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const { confirm, dialog } = useConfirm();

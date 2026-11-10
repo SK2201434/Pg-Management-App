@@ -24,6 +24,8 @@ export function useSaveHouseRules(propertyId: string) {
   const queryClient = useQueryClient();
   return useMutation<void, Error, { rules: string[]; policy: MoveOutPolicy }>({
     mutationFn: ({ rules, policy }) => saveHouseRules(propertyId, rules, policy),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: houseRulesKey(ownerUid, propertyId) }),
+    onSuccess: () => {
+      return queryClient.invalidateQueries({ queryKey: houseRulesKey(ownerUid, propertyId) });
+    },
   });
 }

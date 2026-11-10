@@ -1,9 +1,10 @@
 // Pure model of stay requests as the OWNER sees them. No React, no Firebase.
 //
 // A tenant's request lives at `properties/{pid}/stayRequests/{tenantUid}` (see discoveryModel.ts).
-// The owner's notifications are derived from the pending ones, like the rent notifications are
-// derived from rent records: each has a stable id built from the request and its last change, so a
-// request is one notification, and a request that was withdrawn and sent again is a new one.
+// The owner's notifications are derived from the requests, like the rent notifications are derived
+// from rent records. A request is ONE notification for good: its id is built from the request and when
+// it was created, so approving, declining or withdrawing it changes the notification's title but never
+// makes it disappear. A request that is sent again after being withdrawn or declined is a new one.
 import type { OwnerNotification } from '@/features/notifications/notificationsModel';
 
 export type OwnerStayRequestStatus = 'pending' | 'approved' | 'rejected' | 'withdrawn';
@@ -34,21 +35,45 @@ const SNIPPET = 80;
 
 const snippet = (message: string): string => (message.length > SNIPPET ? `${message.slice(0, SNIPPET).trimEnd()}…` : message);
 
-/** One notification per pending request, newest first. `nowMs` stands in while a server time has not arrived. */
+/** A pending request changed this long after it was created can only have been sent again. */
+const RESEND_GAP_MS = 5_000;
+
+const TITLE: Record<OwnerStayRequestStatus, string> = {
+  pending: 'New stay request',
+  approved: 'Stay request approved',
+  rejected: 'Stay request declined',
+  withdrawn: 'Stay request withdrawn',
+};
+
+/**
+ * One notification per request, whatever its status, newest first. `nowMs` stands in while a server
+ * time has not arrived. Decisions the owner made themselves (approved, declined) are marked `autoRead`,
+ * so they stay in the list as history without raising an unread dot.
+ */
 export function buildStayRequestNotifications(requests: readonly OwnerStayRequest[], nowMs: number): OwnerNotification[] {
   return requests
-    .filter((r) => r.status === 'pending')
-    .map((r) => {
+    .map((r): OwnerNotification => {
       const atMs = r.updatedMs ?? r.createdMs ?? nowMs;
+      const base = `stay-request_${r.propertyId}_${r.tenantUid}_${r.createdMs ?? 'new'}`;
+      const resent = r.status === 'pending' && r.createdMs !== null && r.updatedMs !== null && r.updatedMs - r.createdMs > RESEND_GAP_MS;
+      const body =
+        r.status === 'pending'
+          ? `${r.tenantName} wants to stay at ${r.propertyName}.${r.message ? ` “${snippet(r.message)}”` : ''}`
+          : r.status === 'approved'
+            ? `You approved ${r.tenantName}’s request to stay at ${r.propertyName}.`
+            : r.status === 'rejected'
+              ? `You declined ${r.tenantName}’s request to stay at ${r.propertyName}.`
+              : `${r.tenantName} withdrew their request to stay at ${r.propertyName}.`;
       return {
-        id: `stay-request_${r.propertyId}_${r.tenantUid}_${r.updatedMs ?? r.createdMs ?? 'new'}`,
-        kind: 'stay-request' as const,
-        title: 'New stay request',
-        body: `${r.tenantName} wants to stay at ${r.propertyName}.${r.message ? ` “${snippet(r.message)}”` : ''}`,
+        id: resent ? `${base}_${r.updatedMs}` : base,
+        kind: 'stay-request',
+        title: TITLE[r.status],
+        body,
         propertyId: r.propertyId,
         propertyName: r.propertyName,
         tenantUid: r.tenantUid,
         atMs,
+        ...(r.status === 'approved' || r.status === 'rejected' ? { autoRead: true } : {}),
       };
     })
     .sort((a, b) => b.atMs - a.atMs || a.id.localeCompare(b.id));

@@ -6,7 +6,7 @@ import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from '
 import { AppButton } from '@/components/app-button';
 import { BrandColors } from '@/constants/theme';
 import { TopBarIconButton } from '@/features/navigation/AppTopBar';
-import { formatWhen, type NotificationKind } from '@/features/notifications/notificationsModel';
+import { formatWhen, NOTIFICATION_PAGE_SIZE, nextVisibleCount, type NotificationKind } from '@/features/notifications/notificationsModel';
 import { useNotifications, type NotificationItem } from '@/features/notifications/useNotifications';
 
 type IconName = ComponentProps<typeof MaterialIcons>['name'];
@@ -18,6 +18,8 @@ const ICON: Record<NotificationKind, { icon: IconName; color: string; tint: stri
   'stay-request': { icon: 'person-add', color: BrandColors.accent, tint: '#E8F0EE' },
   review: { icon: 'star', color: '#D9A441', tint: '#FDF7EB' },
   'tenant-request': { icon: 'build', color: '#9E7231', tint: '#FDF7EB' },
+  'phone-match': { icon: 'link', color: BrandColors.accent, tint: '#E8F0EE' },
+  'phone-declined': { icon: 'report-problem', color: BrandColors.error, tint: BrandColors.errorTint },
 };
 
 // Notifications: rent due and overdue, and payments recorded. They are derived from the owner's own rent
@@ -27,11 +29,17 @@ const ICON: Record<NotificationKind, { icon: IconName; color: string; tint: stri
 export function NotificationsScreen() {
   const n = useNotifications();
   const [now] = useState(Date.now);
+  // Infinite scroll: show a page at a time and add the next when the end is reached, until there is no more.
+  const [visible, setVisible] = useState(NOTIFICATION_PAGE_SIZE);
 
   const open = (item: NotificationItem) => {
     n.markRead([item.id]);
-    if (item.kind === 'stay-request') {
+    if (item.kind === 'stay-request' || item.kind === 'phone-match') {
       router.push('/owner/stay-requests');
+      return;
+    }
+    if (item.kind === 'phone-declined' && item.residentId) {
+      router.push({ pathname: '/owner/tenants/[tenantId]', params: { tenantId: item.residentId, propertyId: item.propertyId } });
       return;
     }
     if (item.kind === 'review') {
@@ -80,8 +88,17 @@ export function NotificationsScreen() {
     <View style={styles.screen}>
       {header}
       <FlatList
-        data={n.items}
+        data={n.items.slice(0, visible)}
         keyExtractor={(i) => i.id}
+        onEndReachedThreshold={0.4}
+        onEndReached={() => setVisible((shown) => nextVisibleCount(shown, n.items?.length ?? 0))}
+        ListFooterComponent={
+          n.items.length > visible ? (
+            <ActivityIndicator color={BrandColors.accent} style={styles.footer} />
+          ) : n.items.length > NOTIFICATION_PAGE_SIZE ? (
+            <Text style={[styles.muted, styles.footer, styles.footerEnd]}>You’re all caught up</Text>
+          ) : undefined
+        }
         contentContainerStyle={styles.content}
         ItemSeparatorComponent={Separator}
         ListEmptyComponent={
@@ -133,6 +150,8 @@ const styles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center', gap: 8, padding: 24 },
   content: { padding: 16, paddingBottom: 32, flexGrow: 1 },
   separator: { height: 10 },
+  footer: { paddingVertical: 16 },
+  footerEnd: { textAlign: 'center' },
   muted: { fontSize: 13, color: BrandColors.textSecondary },
   title: { fontSize: 17, fontWeight: '800', color: BrandColors.textPrimary },
   retry: { alignSelf: 'stretch', marginTop: 8 },

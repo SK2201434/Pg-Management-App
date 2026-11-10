@@ -7,6 +7,7 @@ import {
 } from 'react-hook-form';
 import { Pressable, StyleSheet, TextInput, View, type TextInputProps } from 'react-native';
 
+import { useScrollToError } from '@/components/form-error-scroll';
 import { ThemedText } from '@/components/themed-text';
 import { Spacing, BrandColors } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
@@ -33,9 +34,10 @@ export function AuthTextField<T extends FieldValues>({
 }: AuthTextFieldProps<T>) {
   const theme = useTheme();
   const [isHidden, setIsHidden] = useState(true);
+  const anchor = useScrollToError(error);
 
   return (
-    <View style={styles.container}>
+    <View ref={anchor} collapsable={false} style={styles.container}>
       <ThemedText type="smallBold">{label}</ThemedText>
       <View
         style={[

@@ -80,7 +80,10 @@ export function ForgotPasswordScreen({
           keyboardShouldPersistTaps="handled">
           <View style={styles.centerArea}>
             <View style={styles.content}>
-              <HostellLogo />
+              {/* Left-aligned above the form; centred above the centred "Check your inbox" confirmation. */}
+              <View style={sentTo === null ? undefined : styles.logoCentered}>
+                <HostellLogo />
+              </View>
 
               {sentTo === null ? (
                 <>
@@ -187,6 +190,7 @@ const styles = StyleSheet.create({
   },
   centerArea: { flex: 1, justifyContent: 'center' },
   content: { width: '100%', maxWidth: 420, alignSelf: 'center', gap: 28 },
+  logoCentered: { alignItems: 'center' },
   heading: { gap: 8 },
   label: {
     fontSize: 12,

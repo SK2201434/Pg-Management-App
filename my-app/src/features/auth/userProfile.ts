@@ -3,11 +3,14 @@ import { doc, getDoc } from 'firebase/firestore';
 import { AccountRoles, AccountStatuses, type AccountRole } from '@/constants/account';
 import { getFirestoreDb } from '@/config/firebase';
 import type { UserProfile } from '@/features/auth/authTypes';
+import { isValidPhone } from '@/features/auth/phone';
 
 /** The authorization fields of `users/{uid}` the app acts on. */
 export type VerifiedProfile = Pick<UserProfile, 'uid' | 'role' | 'status'> & {
   /** Display name from the profile, when present and non-empty. */
   displayName: string | null;
+  /** The profile's 10-digit phone number, or null when it has none (or an old, invalid one). */
+  phone?: string | null;
 };
 
 /**
@@ -105,8 +108,8 @@ export async function fetchUserProfile(uid: string): Promise<UserProfileResult> 
   }
   if (!snapshot.exists()) return { state: 'missing' };
 
-  const { role, status, displayName } = snapshot.data() as Partial<
-    Record<'role' | 'status' | 'displayName', unknown>
+  const { role, status, displayName, phone } = snapshot.data() as Partial<
+    Record<'role' | 'status' | 'displayName' | 'phone', unknown>
   >;
   if (!isAccountRole(role)) return { state: 'invalid' };
   if (status === AccountStatuses.Disabled) return { state: 'disabled' };
@@ -119,6 +122,7 @@ export async function fetchUserProfile(uid: string): Promise<UserProfileResult> 
       role,
       status,
       displayName: typeof displayName === 'string' && displayName.trim() ? displayName.trim() : null,
+      phone: typeof phone === 'string' && isValidPhone(phone.trim()) ? phone.trim() : null,
     },
   };
 }
